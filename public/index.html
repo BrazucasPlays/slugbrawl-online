@@ -6,10 +6,13 @@
 body{margin:0;background:#000;color:#fff;font-family:Arial}
 canvas{display:block}
 #joy{position:fixed;left:20px;bottom:20px;width:120px;height:120px;border-radius:50%;background:#333}
-#fire{position:fixed;right:20px;bottom:60px;padding:20px;background:#ffc;border-radius:10px;color:#000}
+#fire{position:fixed;right:20px;bottom:60px;padding:18px;background:#ffc;color:#000;border-radius:12px;font-weight:bold}
+#hud{position:fixed;top:10px;left:10px;font-weight:bold}
 </style>
 </head>
 <body>
+
+<div id="hud">Conectando...</div>
 <canvas id="c"></canvas>
 <div id="joy"></div>
 <div id="fire">ATIRAR</div>
@@ -18,19 +21,19 @@ canvas{display:block}
 const c=document.getElementById("c"),ctx=c.getContext("2d");
 c.width=innerWidth;c.height=innerHeight;
 
-let ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
+const ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
 let id,state,aim={x:1,y:0},move={x:0,y:0};
 
 ws.onmessage=e=>{
-  let m=JSON.parse(e.data);
-  if(m.t==="id") id=m.id;
+  const m=JSON.parse(e.data);
+  if(m.t==="id"){id=m.id;document.getElementById("hud").textContent="Jogando";}
   if(m.t==="state") state=m;
 };
 
 document.getElementById("joy").onpointermove=e=>{
   if(!e.buttons) return;
-  move.x=e.movementX/20; move.y=e.movementY/20;
-  let l=Math.hypot(move.x,move.y)||1;
+  move.x=e.movementX/18; move.y=e.movementY/18;
+  const l=Math.hypot(move.x,move.y)||1;
   aim.x=move.x/l; aim.y=move.y/l;
   ws.send(JSON.stringify({t:"move",x:move.x,y:move.y}));
 };
@@ -41,22 +44,28 @@ document.getElementById("fire").onclick=()=>{
 
 function loop(){
   ctx.clearRect(0,0,c.width,c.height);
-  if(!state||!id) return requestAnimationFrame(loop);
+  if(!state||!id){requestAnimationFrame(loop);return;}
 
-  let me=state.players[id];
-  ctx.save(); ctx.translate(c.width/2-me.x,c.height/2-me.y);
+  const me=state.players[id];
+  ctx.save();ctx.translate(c.width/2-me.x,c.height/2-me.y);
 
-  for(let p of Object.values(state.players)){
+  for(const p of Object.values(state.players)){
     ctx.fillStyle=p.id===id?"#0f0":"#f00";
-    ctx.beginPath();ctx.arc(p.x,p.y,15,0,6.28);ctx.fill();
+    ctx.beginPath();ctx.arc(p.x,p.y,16,0,6.28);ctx.fill();
   }
+
   state.enemies.forEach(e=>{
     ctx.fillStyle="#ff0";
-    ctx.beginPath();ctx.arc(e.x,e.y,12,0,6.28);ctx.fill();
+    ctx.beginPath();ctx.arc(e.x,e.y,14,0,6.28);ctx.fill();
   });
+
   state.bullets.forEach(b=>{
-    ctx.fillStyle="#fff";ctx.fillRect(b.x-2,b.y-2,4,4);
+    ctx.fillStyle="#fff";
+    ctx.fillRect(b.x-2,b.y-2,4,4);
   });
+
+  ctx.fillStyle=state.door.open?"#0f0":"#f00";
+  ctx.fillRect(state.door.x-20,state.door.y-30,40,60);
 
   ctx.restore();
   requestAnimationFrame(loop);

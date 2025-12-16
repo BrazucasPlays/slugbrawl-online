@@ -1,174 +1,62 @@
 <!doctype html>
-<html lang="pt-br">
+<html>
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>SlugBrawl</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-html,body{margin:0;overflow:hidden;background:#071022;color:#fff;font-family:Arial;touch-action:none}
+body{margin:0;background:#000;color:#fff;font-family:Arial}
 canvas{display:block}
-#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:10}
-#box{width:92%;max-width:360px;background:#111827;padding:16px;border-radius:14px}
-input,select,button{width:100%;margin-top:10px;padding:12px;border-radius:10px;border:none;font-weight:bold}
-button{background:#facc15;color:#000}
-#hud{position:fixed;top:10px;left:10px;font-weight:bold;z-index:5}
-
-.joy{position:fixed;left:20px;bottom:20px;width:140px;height:140px;border-radius:50%;
-background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.2);z-index:20}
-.knob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px;border-radius:50%;
-background:#fff;opacity:.9}
-
-#fire{position:fixed;right:20px;bottom:60px;width:110px;height:64px;border-radius:18px;
-background:#facc15;color:#000;display:flex;align-items:center;justify-content:center;
-font-weight:bold;z-index:20}
+#joy{position:fixed;left:20px;bottom:20px;width:120px;height:120px;border-radius:50%;background:#333}
+#fire{position:fixed;right:20px;bottom:60px;padding:20px;background:#ffc;border-radius:10px;color:#000}
 </style>
 </head>
 <body>
-
-<div id="menu">
-  <div id="box">
-    <h2>SlugBrawl</h2>
-    <input id="name" placeholder="Nome">
-    <input id="room" placeholder="Sala">
-    <select id="cls">
-      <option value="soldier">Soldado</option>
-      <option value="tank">Tank</option>
-    </select>
-    <button onclick="join()">ENTRAR</button>
-  </div>
-</div>
-
-<div id="hud">Clique ENTRAR</div>
 <canvas id="c"></canvas>
-
-<div class="joy" id="joy">
-  <div class="knob" id="knob"></div>
-</div>
+<div id="joy"></div>
 <div id="fire">ATIRAR</div>
 
 <script>
-/* ================= CANVAS ================= */
 const c=document.getElementById("c"),ctx=c.getContext("2d");
-function resize(){c.width=innerWidth;c.height=innerHeight}
-addEventListener("resize",resize);resize();
+c.width=innerWidth;c.height=innerHeight;
 
-/* ================= SPRITES (CANVAS) ================= */
-function makePlayer(color){
-  const s=document.createElement("canvas"); s.width=64; s.height=64;
-  const g=s.getContext("2d");
-  g.fillStyle=color;
-  g.beginPath(); g.arc(32,22,12,0,Math.PI*2); g.fill();
-  g.fillRect(22,34,20,20);
-  g.fillStyle="#000"; g.fillRect(27,18,3,3); g.fillRect(34,18,3,3);
-  return s;
-}
-function makeEnemy(){
-  const s=document.createElement("canvas"); s.width=64; s.height=64;
-  const g=s.getContext("2d");
-  g.fillStyle="#f59e0b";
-  g.beginPath(); g.arc(32,22,12,0,Math.PI*2); g.fill();
-  g.fillRect(22,34,20,20);
-  g.fillStyle="#000"; g.fillRect(28,18,4,4); g.fillRect(34,18,4,4);
-  return s;
-}
-const SPR={
-  soldier:makePlayer("#3b82f6"),
-  tank:makePlayer("#ef4444"),
-  enemy:makeEnemy()
+let ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
+let id,state,aim={x:1,y:0},move={x:0,y:0};
+
+ws.onmessage=e=>{
+  let m=JSON.parse(e.data);
+  if(m.t==="id") id=m.id;
+  if(m.t==="state") state=m;
 };
 
-/* ================= NETWORK ================= */
-const WS_URL=(location.protocol==="https:"?"wss://":"ws://")+location.hostname;
-let ws,myId,snap;
-
-window.join=function(){
-  document.getElementById("hud").textContent="Conectando...";
-  ws=new WebSocket(WS_URL);
-  ws.onopen=()=>{
-    ws.send(JSON.stringify({
-      t:"join",
-      name:document.getElementById("name").value,
-      room:document.getElementById("room").value,
-      cls:document.getElementById("cls").value
-    }));
-  };
-  ws.onmessage=e=>{
-    const m=JSON.parse(e.data);
-    if(m.t==="you"){
-      myId=m.id;
-      document.getElementById("menu").style.display="none";
-      document.getElementById("hud").textContent="Jogando";
-    }
-    if(m.t==="snap") snap=m.r;
-  };
+document.getElementById("joy").onpointermove=e=>{
+  if(!e.buttons) return;
+  move.x=e.movementX/20; move.y=e.movementY/20;
+  let l=Math.hypot(move.x,move.y)||1;
+  aim.x=move.x/l; aim.y=move.y/l;
+  ws.send(JSON.stringify({t:"move",x:move.x,y:move.y}));
 };
 
-/* ================= JOYSTICK CORRETO ================= */
-const joy=document.getElementById("joy");
-const knob=document.getElementById("knob");
-let move={x:0,y:0},aim={x:1,y:0};
-let center={x:0,y:0},drag=false;
-
-joy.onpointerdown=e=>{
-  const r=joy.getBoundingClientRect();
-  center.x=r.left+r.width/2;
-  center.y=r.top+r.height/2;
-  drag=true;
-};
-joy.onpointermove=e=>{
-  if(!drag) return;
-  const dx=e.clientX-center.x, dy=e.clientY-center.y;
-  const dist=Math.hypot(dx,dy);
-  const max=50;
-  const nx=(dx/dist||0)*Math.min(dist,max);
-  const ny=(dy/dist||0)*Math.min(dist,max);
-  knob.style.transform=`translate(${nx}px,${ny}px)`;
-  move.x=nx/max; move.y=ny/max;
-  if(Math.abs(move.x)+Math.abs(move.y)>0.1){
-    const l=Math.hypot(move.x,move.y);
-    aim.x=move.x/l; aim.y=move.y/l;
-  }
-  if(ws&&ws.readyState===1){
-    ws.send(JSON.stringify({t:"input",ix:move.x,iy:move.y,aimX:aim.x,aimY:aim.y}));
-  }
-};
-joy.onpointerup=()=>{
-  drag=false; move.x=move.y=0;
-  knob.style.transform="";
+document.getElementById("fire").onclick=()=>{
+  ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
 };
 
-/* ================= ATIRAR ================= */
-document.getElementById("fire").onpointerdown=()=>{
-  if(ws&&ws.readyState===1) ws.send(JSON.stringify({t:"shoot"}));
-};
-
-/* ================= DRAW ================= */
 function loop(){
   ctx.clearRect(0,0,c.width,c.height);
-  if(!snap||!myId){requestAnimationFrame(loop);return;}
+  if(!state||!id) return requestAnimationFrame(loop);
 
-  const me=snap.players[myId];
-  const camX=me.x-c.width/2, camY=me.y-c.height/2;
-  ctx.save(); ctx.translate(-camX,-camY);
+  let me=state.players[id];
+  ctx.save(); ctx.translate(c.width/2-me.x,c.height/2-me.y);
 
-  for(const p of Object.values(snap.players)){
-    const img=p.cls==="tank"?SPR.tank:SPR.soldier;
-    ctx.drawImage(img,p.x-32,p.y-32,64,64);
-    if(p.id===myId){
-      ctx.strokeStyle="#fff"; ctx.lineWidth=4;
-      ctx.beginPath();
-      ctx.moveTo(p.x+aim.x*18,p.y+aim.y*18);
-      ctx.lineTo(p.x+aim.x*42,p.y+aim.y*42);
-      ctx.stroke();
-    }
+  for(let p of Object.values(state.players)){
+    ctx.fillStyle=p.id===id?"#0f0":"#f00";
+    ctx.beginPath();ctx.arc(p.x,p.y,15,0,6.28);ctx.fill();
   }
-  for(const e of snap.enemies){
-    ctx.drawImage(SPR.enemy,e.x-32,e.y-32,64,64);
-  }
-  for(const b of snap.bullets){
-    ctx.fillStyle="#ffd60a";
-    ctx.fillRect(b.x-3,b.y-3,6,6);
-  }
+  state.enemies.forEach(e=>{
+    ctx.fillStyle="#ff0";
+    ctx.beginPath();ctx.arc(e.x,e.y,12,0,6.28);ctx.fill();
+  });
+  state.bullets.forEach(b=>{
+    ctx.fillStyle="#fff";ctx.fillRect(b.x-2,b.y-2,4,4);
+  });
 
   ctx.restore();
   requestAnimationFrame(loop);

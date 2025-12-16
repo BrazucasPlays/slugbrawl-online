@@ -12,6 +12,11 @@ button{background:#ffc;color:#000;font-weight:bold}
 #hud{position:fixed;top:10px;left:10px;font-weight:bold; color: #fff; text-shadow: 1px 1px 2px #000;}
 #soundToggle{position:fixed;top:10px;right:10px;padding:10px;background:#333;color:#fff;border-radius:8px;cursor:pointer}
 
+/* Estilos de Seleção de Jogador */
+#playerSelect{margin: 15px 0 10px 0; display: flex; justify-content: space-around;}
+.colorOption{width: 25px; height: 25px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; transition: border-color 0.1s;}
+.colorOption.selected{border-color: #ffc;}
+
 #joy{position:fixed;left:20px;bottom:20px;width:140px;height:140px;border-radius:50%;background:#333}
 #knob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px;border-radius:50%;background:#fff}
 #fire{position:fixed;right:20px;bottom:60px;padding:18px;background:#ffc;color:#000;border-radius:12px;font-weight:bold}
@@ -27,6 +32,13 @@ button{background:#ffc;color:#000;font-weight:bold}
   <div id="box">
     <h3>SlugBrawl</h3>
     <input id="name" placeholder="Nome">
+    <div id="playerSelect">
+        <div class="colorOption selected" style="background-color: #22c55e;" data-color="#22c55e" onclick="selectColor(this)"></div>
+        <div class="colorOption" style="background-color: #3b82f6;" data-color="#3b82f6" onclick="selectColor(this)"></div>
+        <div class="colorOption" style="background-color: #a855f7;" data-color="#a855f7" onclick="selectColor(this)"></div>
+        <div class="colorOption" style="background-color: #f97316;" data-color="#f97316" onclick="selectColor(this)"></div>
+        <div class="colorOption" style="background-color: #06b6d4;" data-color="#06b6d4" onclick="selectColor(this)"></div>
+    </div>
     <input id="room" placeholder="Sala (ou vazio solo)">
     <button onclick="join()">JOGAR</button>
   </div>
@@ -54,6 +66,15 @@ const MAP_WIDTH = 1800;
 const MAP_HEIGHT = 1000;
 let lastPlayerHp = 100;
 let isGameOver = false;
+let playerColor = "#22c55e"; // Cor padrão inicial (Verde)
+
+
+// --- FUNÇÃO DE SELEÇÃO DE COR NO MENU ---
+function selectColor(element) {
+    document.querySelectorAll('.colorOption').forEach(el => el.classList.remove('selected'));
+    element.classList.add('selected');
+    playerColor = element.dataset.color;
+}
 
 // --- FUNÇÕES DE ÁUDIO SINTÉTICO (para estabilidade) ---
 function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
@@ -120,7 +141,10 @@ function join(){
   ws.send(JSON.stringify({
     t:"join",
     name:document.getElementById("name").value,
-    room:roomKey
+    room:roomKey,
+    // A cor é enviada apenas para ser persistente no servidor, se necessário,
+    // mas o Client principal usa a variável local 'playerColor' para desenhar.
+    color: playerColor 
   }));
   document.getElementById("menu").style.display="none"; 
   isGameOver = false;
@@ -130,8 +154,7 @@ function join(){
 }
 
 function restartGame(){
-    ws.send(JSON.stringify({t:"reset"})); // Pede para o servidor resetar o mapa
-    // Força um novo join para recriar o player
+    ws.send(JSON.stringify({t:"reset"})); 
     join(); 
 }
 
@@ -156,11 +179,9 @@ function showEndMenu(status, kills){
         message = `Você foi eliminado. Sua pontuação foi:<br>Mortes: **${kills}**`;
     }
     
-    // Simulação de Ranking: Mostra apenas a pontuação atual.
     stats.innerHTML = `<p style="font-size: 1.2em;">${message}</p>`;
 
     document.getElementById("endMenu").style.display="flex";
-    // Pequeno delay para a transição
     setTimeout(() => {
         document.getElementById("endMenu").style.opacity = 1;
     }, 10); 
@@ -180,12 +201,10 @@ ws.onmessage=e=>{
     if(myId && state.players[myId]) {
       const me = state.players[myId];
       
-      // Checa Fim de Jogo
       if(me.status && !isGameOver){
           showEndMenu(me.status, me.kills);
       }
       
-      // Áudio de Dano e Cura
       if(me.hp < lastPlayerHp && me.hp > 0) { Audio.playSound('damage_sound', 0.8); } 
       else if (me.hp > lastPlayerHp) { Audio.playSound('heal_sound', 0.7); }
       lastPlayerHp = me.hp;
@@ -193,7 +212,7 @@ ws.onmessage=e=>{
   }
 };
 
-// --- CONTROLES (inalterado) ---
+// --- CONTROLES (Revisão de Precisão do Joystick) ---
 const joy=document.getElementById("joy");
 const knob=document.getElementById("knob");
 let center={x:0,y:0},drag=false,MAX=50;
@@ -209,14 +228,27 @@ joy.onpointerdown=e=>{
 
 joy.onpointermove=e=>{
   if(!drag || isGameOver) return;
+  
   const dx=e.clientX-center.x,dy=e.clientY-center.y;
   const d=Math.hypot(dx,dy);
   const m=Math.min(d,MAX);
+  
   const nx=(dx/d||0)*m,ny=(dy/d||0)*m;
   knob.style.transform=`translate(${nx}px,${ny}px)`;
-  move.x=nx/MAX; move.y=ny/MAX;
-  const l=Math.hypot(move.x,move.y)||1;
-  aim.x=move.x/l; aim.y=move.y/l;
+  
+  // CORREÇÃO DE PRECISÃO: Garante que move.x e move.y estejam sempre entre -1 e 1
+  move.x=dx/MAX; move.y=dy/MAX;
+  
+  // Limita o movimento ao círculo do joystick para não exceder 1 (se d > MAX)
+  if (d > MAX) {
+      move.x = dx / d;
+      move.y = dy / d;
+  }
+  
+  // Direção de mira (é o mesmo que o movimento)
+  const L=Math.hypot(move.x,move.y)||1;
+  aim.x=move.x/L; aim.y=move.y/L;
+  
   ws.send(JSON.stringify({t:"move",x:move.x,y:move.y}));
 };
 
@@ -234,7 +266,7 @@ document.getElementById("fire").onclick=()=>{
 };
 
 
-// --- MÓDULO DE RENDERIZAÇÃO (Desenho de CÍRCULOS) ---
+// --- MÓDULO DE RENDERIZAÇÃO (Com Seleção de Cor) ---
 const Renderer = {
     draw(timestamp) {
         ctx.clearRect(0,0,c.width,c.height);
@@ -256,7 +288,6 @@ const Renderer = {
 
         ctx.restore(); 
         
-        // Atualiza o HUD com Kills, HP e Fechamento da Fase (Zone)
         const zonePercent = Math.min(100, Math.floor((state.zone / (MAP_WIDTH / 2)) * 100));
         const zoneMessage = zonePercent < 15 ? "FASE ABERTA" : `ZONA FECHANDO: ${zonePercent}%`;
 
@@ -268,11 +299,14 @@ const Renderer = {
 
     drawPlayers(players, myId) {
         for(const p of Object.values(players)){
-            if(p.hp <= 0 && p.status !== 'victory') continue; // Não desenha se morto
+            if(p.hp <= 0 && p.status !== 'victory') continue; 
 
-            // CÍRCULO DO PLAYER
-            ctx.globalAlpha = p.alive ? 1.0 : 0.5; // Player morto fica transparente
-            ctx.fillStyle=p.id===myId?"#0f0":"#f00";
+            // CÍRCULO DO PLAYER: Usa a cor escolhida pelo player (variável global)
+            // Se fosse multiplayer real, precisaríamos que o servidor enviasse a cor de todos.
+            ctx.globalAlpha = p.alive ? 1.0 : 0.5; 
+            ctx.fillStyle = p.id === myId ? playerColor : "#f00"; // Jogador local usa 'playerColor'
+            
+            // Desenha CÍRCULO
             ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
             ctx.globalAlpha = 1.0;
 
@@ -294,7 +328,6 @@ const Renderer = {
 
     drawEnemies(enemies) {
         enemies.forEach(e => {
-            // CÍRCULO DO INIMIGO
             ctx.fillStyle="#ff0";
             ctx.beginPath();ctx.arc(e.x,e.y,14,0,Math.PI*2);ctx.fill();
             // HP bar
@@ -306,7 +339,7 @@ const Renderer = {
     },
 
     drawDoor(door) {
-        ctx.fillStyle=door.open?"#00f":"#888"; // Porta Azul quando Aberta
+        ctx.fillStyle=door.open?"#00f":"#888";
         ctx.fillRect(door.x-20,door.y-30,40,60);
         if(door.open){
              ctx.fillStyle="#ffc";
@@ -317,7 +350,6 @@ const Renderer = {
 
     drawLifes(lifes) {
         lifes.forEach(l => {
-            // CÍRCULO DE VIDA (Cruz Branca)
             ctx.fillStyle="#fff";
             ctx.beginPath();ctx.arc(l.x,l.y,12,0,Math.PI*2);ctx.fill();
             ctx.fillStyle="#f00";

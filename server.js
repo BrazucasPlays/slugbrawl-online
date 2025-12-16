@@ -1,10 +1,10 @@
-// server.js (inalterado)
-Const express = require("express");
+// server.js
+const express = require("express"); // CORRIGIDO: de 'Const' para 'const'
 const http = require("http");
 const WebSocket = require("ws");
 
 const app = express();
-app.use(express.static("public")); // Assumindo que o client.html está em 'public'
+app.use(express.static("public"));
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
@@ -49,7 +49,8 @@ wss.on("connection",ws=>{
         kills:0,
         ix:0, iy:0
       };
-      ws.send(JSON.stringify({t:"you",id:pid}));
+      // NEW: Adiciona um estado 'lastHp' no cliente para detectar dano/morte
+      ws.send(JSON.stringify({t:"you",id:pid, lastHp: 100})); 
       return;
     }
 

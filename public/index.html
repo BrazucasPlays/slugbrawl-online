@@ -35,23 +35,13 @@ button{background:#ffc;color:#000;font-weight:bold}
 <div id="fire">ATIRAR</div>
 
 <script>
-// ---------- DADOS BASE64 INJETADOS (PARA EVITAR ARQUIVOS EXTERNOS) ----------
-// Sprites 8x8 (simples, top-down) e áudios sintéticos p/ Web Audio
-const BASE64_ASSETS = {
-    // 8x8 Player (4 frames walk/idle) - Verde
-    player: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAGCAYAAADZAPfJAAAAH0lEQVR42mP4z8BAPwYiwASyT5D/c8EBiI/4jw0AAWk715kY82QAAAAASUVORK5CYII=",
-    // 8x8 Enemy (1 frame idle) - Amarelo
-    enemy: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAABUlEQVR42mP4z8DAfwABAA4B84zM/wAAAABJRU5ErkJggg==",
-    // 8x8 Life Pack (Cruz vermelha)
-    life_pack: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAJklEQVR42mP4z8BAPwYyQQbAwMDAwPCfgYGBAYkZGBgYnAEAE1w5hGj4FpEAAAAASUVORK5CYII=",
-    // Porta Fechada (Círculo vermelho)
-    door_closed: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAB0lEQVR42mP4z8DAfwAEAwD/JbM8VAAAAABJRU5ErkJggg==",
-    // Porta Aberta (Círculo verde)
-    door_open: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAB0lEQVR42mP4z8BAPwAEAAHwBDM8VAAAAABJRU5ErkJggg==",
-};
+const c=document.getElementById("c"),ctx=c.getContext("2d");
+c.width=innerWidth;c.height=innerHeight;
+const MAP_WIDTH = 1800; 
+const MAP_HEIGHT = 1000;
+let lastPlayerHp = 100;
 
-// --- FUNÇÃO PARA GERAR AUDIO SINTÉTICO (Tiro, Dano, Cura) ---
-// Retorna um ArrayBuffer para simular o carregamento de um arquivo .wav
+// --- FUNÇÃO PARA GERAR AUDIO SINTÉTICO (para manter o som de tiro) ---
 function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
     const sampleRate = 44100;
     const numSamples = sampleRate * duration;
@@ -60,54 +50,35 @@ function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
 
     for (let i = 0; i < numSamples; i++) {
         const time = i / sampleRate;
-        const volume = Math.exp(-time / decay); // Volume decaindo
+        const volume = Math.exp(-time / decay);
         
         let sample;
         if (type === 'sine') {
             sample = Math.sin(2 * Math.PI * freq * time);
         } else if (type === 'square') {
             sample = Math.sign(Math.sin(2 * Math.PI * freq * time));
-        } else { // noise
+        } else {
             sample = Math.random() * 2 - 1;
         }
         data[i] = sample * volume;
     }
     return buffer;
 }
-// --------------------------------------------------------------------------
 
-
-const c=document.getElementById("c"),ctx=c.getContext("2d");
-c.width=innerWidth;c.height=innerHeight;
-const MAP_WIDTH = 1800; 
-const MAP_HEIGHT = 1000;
-let lastPlayerHp = 100;
-
-// --- MÓDULO 1: Assets (Carregamento de Base64 e Synth) ---
+// --- MÓDULO 1: Audio (Web Audio API) e Assets Simples ---
 const Assets = {
-    sprites: {},
     audioBuffers: {},
-
     loadAll(callback) {
-        // Carregar Sprites (Imagens Base64)
-        for (let key in BASE64_ASSETS) {
-            const img = new Image();
-            img.src = BASE64_ASSETS[key];
-            this.sprites[key] = img;
-        }
-
-        // Gerar Áudios Sintéticos
-        this.audioBuffers.shoot_sound = generateSynthAudio(800, 0.08, 'square', 0.05); // Barulho de tiro
-        this.audioBuffers.damage_sound = generateSynthAudio(150, 0.2, 'sine', 0.1);    // Dano (grave)
-        this.audioBuffers.heal_sound = generateSynthAudio(1200, 0.15, 'sine', 0.08);   // Cura (agudo)
-        this.audioBuffers.death_sound = generateSynthAudio(60, 0.5, 'square', 0.2);     // Morte (muito grave)
+        // Gerar Áudios Sintéticos (Não precisamos de imagens, voltamos aos círculos)
+        this.audioBuffers.shoot_sound = generateSynthAudio(800, 0.08, 'square', 0.05);
+        this.audioBuffers.damage_sound = generateSynthAudio(150, 0.2, 'sine', 0.1);
+        this.audioBuffers.heal_sound = generateSynthAudio(1200, 0.15, 'sine', 0.08);
+        this.audioBuffers.death_sound = generateSynthAudio(60, 0.5, 'square', 0.2);
         
-        // Como a carga é síncrona, chamamos o callback imediatamente
-        callback();
+        callback(); // Pronta para iniciar o jogo
     }
 };
 
-// --- MÓDULO 2: Audio (Web Audio API) ---
 const Audio = {
     context: new (window.AudioContext || window.webkitAudioContext)(),
     masterGain: null,
@@ -218,71 +189,34 @@ document.getElementById("fire").onclick=()=>{
 };
 
 
-// --- MÓDULO 3: Renderer (Draw Loop com Sprites e Animação) ---
-const Animations = {
-    // Definindo a animação baseada nos sprites 8x8 (4 quadros no total)
-    player: {
-        idle: { frames: 1, fps: 1, frameSize: 8 },
-        walk: { frames: 4, fps: 8, frameSize: 8 } 
-    },
-    enemy: {
-        idle: { frames: 1, fps: 1, frameSize: 8 },
-    }
-};
-
+// --- MÓDULO 2: Renderer (Draw Loop com CÍRCULOS) ---
 const Renderer = {
-    // O tamanho visual é 3x o tamanho do sprite 8x8 (para ser visível)
-    VISUAL_SCALE: 3,
-    PLAYER_VISUAL_SIZE: 16, 
-    ENEMY_VISUAL_SIZE: 14, 
-    lastTime: 0,
-
-    updateAnimations(dt) {
-        for(const p of Object.values(state.players)){
-            if (!p.anim) p.anim = { state: 'idle', frame: 0, time: 0 };
-            
-            const isMoving = Math.hypot(p.ix, p.iy) > 0.1;
-            const stateKey = isMoving ? 'walk' : 'idle';
-            const animDef = Animations.player[stateKey];
-            
-            if (p.anim.state !== stateKey) {
-                p.anim.state = stateKey;
-                p.anim.frame = 0;
-                p.anim.time = 0;
-            }
-
-            p.anim.time += dt;
-            const frameDuration = 1 / animDef.fps;
-            
-            if (p.anim.time >= frameDuration) {
-                p.anim.frame = (p.anim.frame + 1) % animDef.frames;
-                p.anim.time -= frameDuration;
-            }
-        }
-    },
-
     draw(timestamp) {
-        if (!Renderer.lastTime) Renderer.lastTime = timestamp;
-        const dt = (timestamp - Renderer.lastTime) / 1000;
-        Renderer.lastTime = timestamp;
-
         ctx.clearRect(0,0,c.width,c.height);
         if(!state||!myId){requestAnimationFrame(Renderer.draw);return;}
-
-        Renderer.updateAnimations(dt); 
 
         const me=state.players[myId];
         ctx.save();
         ctx.translate(c.width/2-me.x,c.height/2-me.y);
         
+        // 1. Fundo
         ctx.fillStyle = '#4f6c4c'; 
         ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT); 
 
+        // 2. Elementos Estáticos: Porta e Vida
         Renderer.drawDoor(state.door);
         Renderer.drawLifes(state.lifes);
+
+        // 3. Balas
         Renderer.drawBullets(state.bullets);
+
+        // 4. Inimigos
         Renderer.drawEnemies(state.enemies);
+
+        // 5. Players (CÍRCULOS VOLTARAM)
         Renderer.drawPlayers(state.players, myId);
+        
+        // 6. Zona de Dano
         Renderer.drawZone(state.zone);
 
         ctx.restore(); 
@@ -293,37 +227,22 @@ const Renderer = {
         requestAnimationFrame(Renderer.draw);
     },
 
+    // --- FUNÇÕES DE DESENHO SIMPLIFICADAS (CÍRCULOS) ---
     drawPlayers(players, myId) {
         for(const p of Object.values(players)){
             if(p.hp <= 0) continue;
             
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            
-            const size = Renderer.PLAYER_VISUAL_SIZE;
-            const sprite = Assets.sprites.player;
+            // Desenho do CÍRCULO
+            ctx.fillStyle=p.id===myId?"#0f0":"#f00";
+            ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
 
-            let currentAimX = p.id === myId ? aim.x : p.ix;
-            if (currentAimX < 0) { ctx.scale(-1, 1); }
-
-            // Lógica de ANIMAÇÃO
-            const animDef = Animations.player[p.anim.state];
-            const frameWidth = animDef.frameSize;
-            const sx = p.anim.frame * frameWidth;
-
-            // Desenho do frame atual
-            ctx.drawImage(sprite, 
-                          sx, 0, frameWidth, frameWidth, // Recorte (Sprite Sheet 8x8)
-                          -size, -size, size * 2, size * 2); // Destino (32x32)
-
-            ctx.restore(); 
-            
             // HP bar
             ctx.fillStyle="rgba(0,0,0,.5)";
             ctx.fillRect(p.x-22,p.y-28,44,6);
             ctx.fillStyle="#22c55e";
             ctx.fillRect(p.x-22,p.y-28,44*(p.hp/p.max),6);
 
+            // Nome
             ctx.textAlign = 'center';
             ctx.fillStyle = p.id===myId?"#ffc":"#fff";
             ctx.font = 'bold 12px Arial';
@@ -333,13 +252,9 @@ const Renderer = {
 
     drawEnemies(enemies) {
         enemies.forEach(e => {
-            const size = Renderer.ENEMY_VISUAL_SIZE;
-            const sprite = Assets.sprites.enemy;
-            
-            // Desenho do Inimigo (8x8)
-            ctx.drawImage(sprite, 
-                          0, 0, 8, 8, 
-                          e.x - size, e.y - size, size * 2, size * 2); 
+            // Desenho do CÍRCULO
+            ctx.fillStyle="#ff0";
+            ctx.beginPath();ctx.arc(e.x,e.y,14,0,Math.PI*2);ctx.fill();
             
             // HP bar
             ctx.fillStyle="rgba(0,0,0,.5)";
@@ -350,16 +265,15 @@ const Renderer = {
     },
 
     drawDoor(door) {
-        const sprite = door.open ? Assets.sprites.door_open : Assets.sprites.door_closed;
-        // Desenha em 30x30
-        ctx.drawImage(sprite, door.x - 15, door.y - 15, 30, 30);
+        ctx.fillStyle=door.open?"#0f0":"#f00";
+        ctx.fillRect(door.x-20,door.y-30,40,60);
     },
 
     drawLifes(lifes) {
         lifes.forEach(l => {
-            const sprite = Assets.sprites.life_pack;
-            // Desenha em 25x25
-            ctx.drawImage(sprite, l.x - 12, l.y - 12, 25, 25);
+            // Desenho do item de vida (Círculo Branco)
+            ctx.fillStyle="#fff";
+            ctx.beginPath();ctx.arc(l.x,l.y,12,0,Math.PI*2);ctx.fill();
         });
     },
 

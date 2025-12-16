@@ -41,7 +41,7 @@ const MAP_WIDTH = 1800;
 const MAP_HEIGHT = 1000;
 let lastPlayerHp = 100;
 
-// --- FUNÇÃO PARA GERAR AUDIO SINTÉTICO (para manter o som de tiro) ---
+// --- FUNÇÃO PARA GERAR AUDIO SINTÉTICO (Substitui arquivos .wav) ---
 function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
     const sampleRate = 44100;
     const numSamples = sampleRate * duration;
@@ -65,17 +65,16 @@ function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
     return buffer;
 }
 
-// --- MÓDULO 1: Audio (Web Audio API) e Assets Simples ---
+// --- MÓDULO 1: Audio Assets e Controle ---
 const Assets = {
     audioBuffers: {},
     loadAll(callback) {
-        // Gerar Áudios Sintéticos (Não precisamos de imagens, voltamos aos círculos)
         this.audioBuffers.shoot_sound = generateSynthAudio(800, 0.08, 'square', 0.05);
         this.audioBuffers.damage_sound = generateSynthAudio(150, 0.2, 'sine', 0.1);
         this.audioBuffers.heal_sound = generateSynthAudio(1200, 0.15, 'sine', 0.08);
         this.audioBuffers.death_sound = generateSynthAudio(60, 0.5, 'square', 0.2);
         
-        callback(); // Pronta para iniciar o jogo
+        callback();
     }
 };
 
@@ -189,7 +188,7 @@ document.getElementById("fire").onclick=()=>{
 };
 
 
-// --- MÓDULO 2: Renderer (Draw Loop com CÍRCULOS) ---
+// --- MÓDULO 2: Renderer (Desenho de CÍRCULOS) ---
 const Renderer = {
     draw(timestamp) {
         ctx.clearRect(0,0,c.width,c.height);
@@ -199,24 +198,14 @@ const Renderer = {
         ctx.save();
         ctx.translate(c.width/2-me.x,c.height/2-me.y);
         
-        // 1. Fundo
         ctx.fillStyle = '#4f6c4c'; 
         ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT); 
 
-        // 2. Elementos Estáticos: Porta e Vida
         Renderer.drawDoor(state.door);
         Renderer.drawLifes(state.lifes);
-
-        // 3. Balas
         Renderer.drawBullets(state.bullets);
-
-        // 4. Inimigos
         Renderer.drawEnemies(state.enemies);
-
-        // 5. Players (CÍRCULOS VOLTARAM)
-        Renderer.drawPlayers(state.players, myId);
-        
-        // 6. Zona de Dano
+        Renderer.drawPlayers(state.players, myId); // CÍRCULOS
         Renderer.drawZone(state.zone);
 
         ctx.restore(); 
@@ -227,12 +216,11 @@ const Renderer = {
         requestAnimationFrame(Renderer.draw);
     },
 
-    // --- FUNÇÕES DE DESENHO SIMPLIFICADAS (CÍRCULOS) ---
     drawPlayers(players, myId) {
         for(const p of Object.values(players)){
             if(p.hp <= 0) continue;
             
-            // Desenho do CÍRCULO
+            // CÍRCULO DO PLAYER
             ctx.fillStyle=p.id===myId?"#0f0":"#f00";
             ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
 
@@ -252,7 +240,7 @@ const Renderer = {
 
     drawEnemies(enemies) {
         enemies.forEach(e => {
-            // Desenho do CÍRCULO
+            // CÍRCULO DO INIMIGO
             ctx.fillStyle="#ff0";
             ctx.beginPath();ctx.arc(e.x,e.y,14,0,Math.PI*2);ctx.fill();
             
@@ -271,7 +259,7 @@ const Renderer = {
 
     drawLifes(lifes) {
         lifes.forEach(l => {
-            // Desenho do item de vida (Círculo Branco)
+            // CÍRCULO DE VIDA
             ctx.fillStyle="#fff";
             ctx.beginPath();ctx.arc(l.x,l.y,12,0,Math.PI*2);ctx.fill();
         });

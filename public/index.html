@@ -5,16 +5,20 @@
 <style>
 body{margin:0;background:#000;color:#fff;font-family:Arial}
 canvas{display:block}
-#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index: 100;}
-#box{background:#111;padding:16px;border-radius:12px;width:280px}
+#menu, #endMenu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index: 100; opacity: 1; transition: opacity 0.5s;}
+#box{background:#111;padding:16px;border-radius:12px;width:280px; text-align: center;}
 input,button{width:100%;margin-top:10px;padding:12px;border-radius:8px;border:none}
 button{background:#ffc;color:#000;font-weight:bold}
-#hud{position:fixed;top:10px;left:10px;font-weight:bold}
+#hud{position:fixed;top:10px;left:10px;font-weight:bold; color: #fff; text-shadow: 1px 1px 2px #000;}
 #soundToggle{position:fixed;top:10px;right:10px;padding:10px;background:#333;color:#fff;border-radius:8px;cursor:pointer}
 
 #joy{position:fixed;left:20px;bottom:20px;width:140px;height:140px;border-radius:50%;background:#333}
 #knob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px;border-radius:50%;background:#fff}
 #fire{position:fixed;right:20px;bottom:60px;padding:18px;background:#ffc;color:#000;border-radius:12px;font-weight:bold}
+
+#endBox{background:#111;padding:25px;border-radius:12px;width:350px; text-align: center;}
+#endTitle{font-size: 2em; margin-bottom: 10px;}
+#endStats{margin-bottom: 20px;}
 </style>
 </head>
 <body>
@@ -26,6 +30,15 @@ button{background:#ffc;color:#000;font-weight:bold}
     <input id="room" placeholder="Sala (ou vazio solo)">
     <button onclick="join()">JOGAR</button>
   </div>
+</div>
+
+<div id="endMenu" style="display:none; opacity: 0;">
+    <div id="endBox">
+        <h3 id="endTitle">FIM DE JOGO</h3>
+        <div id="endStats"></div>
+        <button onclick="restartGame()">REINICIAR</button>
+        <p style="font-size: 0.8em; margin-top: 15px;">(Você voltará para a sala atual, mas o mapa será resetado)</p>
+    </div>
 </div>
 
 <div id="hud"></div>
@@ -40,74 +53,44 @@ c.width=innerWidth;c.height=innerHeight;
 const MAP_WIDTH = 1800; 
 const MAP_HEIGHT = 1000;
 let lastPlayerHp = 100;
+let isGameOver = false;
 
-// --- FUNÇÃO PARA GERAR AUDIO SINTÉTICO ---
+// --- FUNÇÕES DE ÁUDIO SINTÉTICO (para estabilidade) ---
 function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
     const sampleRate = 44100;
     const numSamples = sampleRate * duration;
     const buffer = Audio.context.createBuffer(1, numSamples, sampleRate);
     const data = buffer.getChannelData(0);
+
     for (let i = 0; i < numSamples; i++) {
         const time = i / sampleRate;
         const volume = Math.exp(-time / decay);
         let sample;
-        if (type === 'sine') {
-            sample = Math.sin(2 * Math.PI * freq * time);
-        } else if (type === 'square') {
-            sample = Math.sign(Math.sin(2 * Math.PI * freq * time));
-        } else {
-            sample = Math.random() * 2 - 1;
-        }
+        if (type === 'sine') { sample = Math.sin(2 * Math.PI * freq * time); } 
+        else if (type === 'square') { sample = Math.sign(Math.sin(2 * Math.PI * freq * time)); } 
+        else { sample = Math.random() * 2 - 1; }
         data[i] = sample * volume;
     }
     return buffer;
 }
 
-// --- MÓDULO 1: Assets (Carregando o Sprite Sheet e Áudios) ---
-const Assets = {
-    sprites: {},
-    audioBuffers: {},
-    
-    // DEFINIÇÃO DOS ASSETS
-    sources: {
-        player_sheet: { path: 'img/player_sheet.png', type: 'image' }, // SEU SPRITE
-        // Usamos círculos para inimigos/itens, então não precisamos deles aqui.
-    },
-    
-    loadAll(callback) {
-        // Geração dos Áudios Sintéticos
-        this.audioBuffers.shoot_sound = generateSynthAudio(800, 0.08, 'square', 0.05);
-        this.audioBuffers.damage_sound = generateSynthAudio(150, 0.2, 'sine', 0.1);
-        this.audioBuffers.heal_sound = generateSynthAudio(1200, 0.15, 'sine', 0.08);
-        this.audioBuffers.death_sound = generateSynthAudio(60, 0.5, 'square', 0.2);
-        
-        // Carregamento da Folha de Sprite
-        const img = new Image();
-        img.src = this.sources.player_sheet.path;
-        img.onload = () => {
-            this.sprites.player = img;
-            console.log("Player Sprite Sheet carregada!");
-            callback();
-        };
-        img.onerror = () => {
-            console.error("Erro ao carregar player_sheet.png. Verifique o nome e a pasta.");
-            // Caso falhe, ainda rodamos, mas o player não aparecerá.
-            callback(); 
-        };
-    }
-};
+const Assets = { audioBuffers: {}, loadAll(callback) {
+    this.audioBuffers.shoot_sound = generateSynthAudio(800, 0.08, 'square', 0.05);
+    this.audioBuffers.damage_sound = generateSynthAudio(150, 0.2, 'sine', 0.1);
+    this.audioBuffers.heal_sound = generateSynthAudio(1200, 0.15, 'sine', 0.08);
+    this.audioBuffers.death_sound = generateSynthAudio(60, 0.5, 'square', 0.2);
+    this.audioBuffers.victory_sound = generateSynthAudio(1500, 0.3, 'sine', 0.2);
+    callback();
+}};
 
-// --- MÓDULO 2: Audio (Web Audio API) ---
 const Audio = {
     context: new (window.AudioContext || window.webkitAudioContext)(),
     masterGain: null,
     isMuted: false,
-
     init() {
         this.masterGain = this.context.createGain();
         this.masterGain.connect(this.context.destination);
     },
-
     playSound(key, volume = 1.0) {
         if (this.isMuted || !Assets.audioBuffers[key]) return;
         const buffer = Assets.audioBuffers[key];
@@ -119,7 +102,6 @@ const Audio = {
         gainNode.connect(this.masterGain);
         source.start(0);
     },
-
     toggleMute() {
         this.isMuted = !this.isMuted;
         this.masterGain.gain.value = this.isMuted ? 0 : 1;
@@ -128,7 +110,7 @@ const Audio = {
 };
 Audio.init();
 
-// --- INICIALIZAÇÃO E WEBSOCKET ---
+// --- LÓGICA DE WEBSOCKET E JOGO ---
 const ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
 let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
 
@@ -141,17 +123,70 @@ function join(){
     room:roomKey
   }));
   document.getElementById("menu").style.display="none"; 
+  isGameOver = false;
+  document.getElementById("endMenu").style.display="none"; 
+  document.getElementById("joy").style.display="block";
+  document.getElementById("fire").style.display="block";
 }
+
+function restartGame(){
+    ws.send(JSON.stringify({t:"reset"})); // Pede para o servidor resetar o mapa
+    // Força um novo join para recriar o player
+    join(); 
+}
+
+function showEndMenu(status, kills){
+    isGameOver = true;
+    document.getElementById("joy").style.display="none";
+    document.getElementById("fire").style.display="none";
+    
+    const title = document.getElementById("endTitle");
+    const stats = document.getElementById("endStats");
+    let message = "";
+    
+    if (status === 'victory') {
+        title.textContent = "🏆 VITÓRIA!";
+        title.style.color = "#22c55e";
+        Audio.playSound('victory_sound', 1.0);
+        message = `Parabéns! Você escapou da fase.<br>Você eliminou **${kills}** inimigos.`;
+    } else {
+        title.textContent = "💀 FIM DE JOGO";
+        title.style.color = "#f00";
+        Audio.playSound('death_sound', 1.0);
+        message = `Você foi eliminado. Sua pontuação foi:<br>Mortes: **${kills}**`;
+    }
+    
+    // Simulação de Ranking: Mostra apenas a pontuação atual.
+    stats.innerHTML = `<p style="font-size: 1.2em;">${message}</p>`;
+
+    document.getElementById("endMenu").style.display="flex";
+    // Pequeno delay para a transição
+    setTimeout(() => {
+        document.getElementById("endMenu").style.opacity = 1;
+    }, 10); 
+}
+
 
 ws.onmessage=e=>{
   const m=JSON.parse(e.data);
-  if(m.t==="you"){ myId=m.id; lastPlayerHp = m.lastHp; }
+  if(m.t==="you"){
+    myId=m.id;
+    lastPlayerHp = m.lastHp;
+  }
   if(m.t==="state"){
     state=m.rooms[roomKey];
+    if(!state) return;
+
     if(myId && state.players[myId]) {
       const me = state.players[myId];
+      
+      // Checa Fim de Jogo
+      if(me.status && !isGameOver){
+          showEndMenu(me.status, me.kills);
+      }
+      
+      // Áudio de Dano e Cura
       if(me.hp < lastPlayerHp && me.hp > 0) { Audio.playSound('damage_sound', 0.8); } 
-      else if (me.hp === 0 && lastPlayerHp > 0) { Audio.playSound('death_sound', 1.0); } 
       else if (me.hp > lastPlayerHp) { Audio.playSound('heal_sound', 0.7); }
       lastPlayerHp = me.hp;
     }
@@ -164,6 +199,7 @@ const knob=document.getElementById("knob");
 let center={x:0,y:0},drag=false,MAX=50;
 
 joy.onpointerdown=e=>{
+  if(isGameOver) return;
   Audio.context.resume(); 
   const r=joy.getBoundingClientRect();
   center.x=r.left+r.width/2;
@@ -172,7 +208,7 @@ joy.onpointerdown=e=>{
 };
 
 joy.onpointermove=e=>{
-  if(!drag) return;
+  if(!drag || isGameOver) return;
   const dx=e.clientX-center.x,dy=e.clientY-center.y;
   const d=Math.hypot(dx,dy);
   const m=Math.min(d,MAX);
@@ -185,81 +221,24 @@ joy.onpointermove=e=>{
 };
 
 joy.onpointerup=()=>{
+  if(isGameOver) return;
   drag=false; knob.style.transform="";
   move.x=move.y=0;
   ws.send(JSON.stringify({t:"move",x:0,y:0}));
 };
 
 document.getElementById("fire").onclick=()=>{
+  if(isGameOver) return;
   Audio.playSound('shoot_sound', 0.5); 
   ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
 };
 
 
-// --- MÓDULO 3: Renderer (Com a sua Folha de Sprite) ---
-const FRAME_SIZE = 80; // Tamanho estimado de cada quadro do seu sprite (em pixels)
-const WALK_FRAMES = 3; // Os 3 primeiros quadros para andar/atirar
-const DEATH_FRAMES = 2; // Os 2 últimos quadros para morrer
-
-const Animations = {
-    player: {
-        idle: { frames: 1, fps: 1, frameSize: FRAME_SIZE, startFrame: 0 },
-        walk: { frames: WALK_FRAMES, fps: 8, frameSize: FRAME_SIZE, startFrame: 0 },
-        death: { frames: DEATH_FRAMES, fps: 1, frameSize: FRAME_SIZE, startFrame: 3 } // Quadro 4 e 5
-    },
-};
-
+// --- MÓDULO DE RENDERIZAÇÃO (Desenho de CÍRCULOS) ---
 const Renderer = {
-    PLAYER_VISUAL_SIZE: 30, // Tamanho que o sprite aparecerá na tela (60x60)
-    ENEMY_VISUAL_SIZE: 14,
-    lastTime: 0,
-
-    updateAnimations(dt) {
-        for(const p of Object.values(state.players)){
-            if (!p.anim) p.anim = { state: 'idle', frame: 0, time: 0 };
-            
-            // Determina o estado
-            let stateKey;
-            if (p.hp <= 0) {
-                stateKey = 'death';
-            } else {
-                const isMoving = Math.hypot(p.ix, p.iy) > 0.1;
-                stateKey = isMoving ? 'walk' : 'idle';
-            }
-            
-            const animDef = Animations.player[stateKey];
-            
-            if (p.anim.state !== stateKey) {
-                p.anim.state = stateKey;
-                p.anim.frame = 0;
-                p.anim.time = 0;
-            }
-
-            p.anim.time += dt;
-            const frameDuration = 1 / animDef.fps;
-            
-            if (p.anim.time >= frameDuration) {
-                p.anim.frame = (p.anim.frame + 1);
-                // Death frame: para no último quadro
-                if(p.anim.state === 'death' && p.anim.frame >= animDef.frames){
-                    p.anim.frame = animDef.frames - 1; 
-                } else {
-                    p.anim.frame %= animDef.frames; // Loop para Idle/Walk
-                }
-                p.anim.time -= frameDuration;
-            }
-        }
-    },
-
     draw(timestamp) {
-        if (!Renderer.lastTime) Renderer.lastTime = timestamp;
-        const dt = (timestamp - Renderer.lastTime) / 1000;
-        Renderer.lastTime = timestamp;
-
         ctx.clearRect(0,0,c.width,c.height);
         if(!state||!myId){requestAnimationFrame(Renderer.draw);return;}
-
-        Renderer.updateAnimations(dt); 
 
         const me=state.players[myId];
         ctx.save();
@@ -268,61 +247,42 @@ const Renderer = {
         ctx.fillStyle = '#4f6c4c'; 
         ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT); 
 
-        // Como não temos sprites para eles, mantemos círculos:
         Renderer.drawDoor(state.door);
         Renderer.drawLifes(state.lifes);
         Renderer.drawBullets(state.bullets);
         Renderer.drawEnemies(state.enemies);
-        
-        // Player com Sprite Sheet
         Renderer.drawPlayers(state.players, myId); 
-        
         Renderer.drawZone(state.zone);
 
         ctx.restore(); 
+        
+        // Atualiza o HUD com Kills, HP e Fechamento da Fase (Zone)
+        const zonePercent = Math.min(100, Math.floor((state.zone / (MAP_WIDTH / 2)) * 100));
+        const zoneMessage = zonePercent < 15 ? "FASE ABERTA" : `ZONA FECHANDO: ${zonePercent}%`;
 
-        document.getElementById("hud").textContent=
-            `HP: ${Math.floor(me.hp)} | Kills: ${me.kills}`;
+        document.getElementById("hud").innerHTML=
+            `HP: **${Math.floor(me.hp)}** | Kills: **${me.kills}**<br>${zoneMessage}`;
 
         requestAnimationFrame(Renderer.draw);
     },
 
     drawPlayers(players, myId) {
-        const sprite = Assets.sprites.player;
-        if (!sprite) return; // Se o sprite não carregou, não desenha
-
         for(const p of Object.values(players)){
-            // Se o player está morto e o último quadro de morte já foi exibido, não desenha
-            if(p.hp <= 0 && p.anim.state === 'death' && p.anim.frame === DEATH_FRAMES - 1) continue; 
-            
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            
-            const size = Renderer.PLAYER_VISUAL_SIZE;
-            
-            let currentAimX = p.id === myId ? aim.x : p.ix;
-            if (currentAimX < 0) { ctx.scale(-1, 1); }
+            if(p.hp <= 0 && p.status !== 'victory') continue; // Não desenha se morto
 
-            // Lógica de ANIMAÇÃO com base na Folha de Sprite
-            const animDef = Animations.player[p.anim.state];
-            const frameWidth = animDef.frameSize;
-            
-            // O índice do quadro na Sprite Sheet é o (frame base + frame da animação)
-            const spriteIndex = animDef.startFrame + p.anim.frame; 
-            const sx = spriteIndex * frameWidth;
+            // CÍRCULO DO PLAYER
+            ctx.globalAlpha = p.alive ? 1.0 : 0.5; // Player morto fica transparente
+            ctx.fillStyle=p.id===myId?"#0f0":"#f00";
+            ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
+            ctx.globalAlpha = 1.0;
 
-            // Desenho do frame atual
-            ctx.drawImage(sprite, 
-                          sx, 0, frameWidth, frameWidth, // Recorte (Ex: 0, 80, 160, 240...)
-                          -size, -size * 1.5, size * 2, size * 2); // Destino (60x60, ajustado para o centro)
-
-            ctx.restore(); 
-            
             // HP bar
-            ctx.fillStyle="rgba(0,0,0,.5)";
-            ctx.fillRect(p.x-22,p.y-28,44,6);
-            ctx.fillStyle="#22c55e";
-            ctx.fillRect(p.x-22,p.y-28,44*(p.hp/p.max),6);
+            if(p.hp > 0 || p.id === myId){
+                ctx.fillStyle="rgba(0,0,0,.5)";
+                ctx.fillRect(p.x-22,p.y-28,44,6);
+                ctx.fillStyle="#22c55e";
+                ctx.fillRect(p.x-22,p.y-28,44*(p.hp/p.max),6);
+            }
 
             // Nome
             ctx.textAlign = 'center';
@@ -332,9 +292,9 @@ const Renderer = {
         }
     },
 
-    // --- FUNÇÕES DE DESENHO SIMPLIFICADAS (CÍRCULOS) ---
     drawEnemies(enemies) {
         enemies.forEach(e => {
+            // CÍRCULO DO INIMIGO
             ctx.fillStyle="#ff0";
             ctx.beginPath();ctx.arc(e.x,e.y,14,0,Math.PI*2);ctx.fill();
             // HP bar
@@ -346,14 +306,23 @@ const Renderer = {
     },
 
     drawDoor(door) {
-        ctx.fillStyle=door.open?"#0f0":"#f00";
+        ctx.fillStyle=door.open?"#00f":"#888"; // Porta Azul quando Aberta
         ctx.fillRect(door.x-20,door.y-30,40,60);
+        if(door.open){
+             ctx.fillStyle="#ffc";
+             ctx.textAlign = 'center';
+             ctx.fillText("SAÍDA", door.x, door.y + 10);
+        }
     },
 
     drawLifes(lifes) {
         lifes.forEach(l => {
+            // CÍRCULO DE VIDA (Cruz Branca)
             ctx.fillStyle="#fff";
             ctx.beginPath();ctx.arc(l.x,l.y,12,0,Math.PI*2);ctx.fill();
+            ctx.fillStyle="#f00";
+            ctx.fillRect(l.x-2, l.y-8, 4, 16);
+            ctx.fillRect(l.x-8, l.y-2, 16, 4);
         });
     },
 
@@ -368,7 +337,7 @@ const Renderer = {
         ctx.fillStyle = 'rgba(255, 0, 0, 0.15)'; 
         ctx.fillRect(0, 0, MAP_WIDTH, zone); 
         ctx.fillRect(0, MAP_HEIGHT - zone, MAP_WIDTH, zone); 
-        ctx.fillRect(0, zone, zone, MAP.HEIGHT - 2 * zone);
+        ctx.fillRect(0, zone, zone, MAP_HEIGHT - 2 * zone);
         ctx.fillRect(MAP_WIDTH - zone, zone, zone, MAP_HEIGHT - 2 * zone);
     }
 };

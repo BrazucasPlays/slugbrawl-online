@@ -10,54 +10,24 @@ html,body{margin:0;overflow:hidden;background:#0b0f1a;color:#fff;font-family:Ari
 canvas{display:block}
 
 /* MENU */
-#menu{
-  position:fixed; inset:0;
-  display:flex; align-items:center; justify-content:center;
-  background:rgba(0,0,0,.7); z-index:10
-}
-#menu .box{
-  background:#111827;
-  padding:20px;
-  border-radius:16px;
-  width:90%; max-width:360px
-}
-input,select,button{
-  width:100%; margin-top:10px;
-  padding:12px; border-radius:12px;
-  border:none; font-weight:bold
-}
+#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:10}
+#menu .box{background:#111827;padding:20px;border-radius:16px;width:90%;max-width:360px}
+input,select,button{width:100%;margin-top:10px;padding:12px;border-radius:12px;border:none;font-weight:bold}
 button{background:#facc15;color:#000}
 
 /* CONTROLES */
-.joy{
-  position:fixed; bottom:20px;
-  width:140px; height:140px;
-  border-radius:50%;
-  background:rgba(255,255,255,.15);
-  border:2px solid rgba(255,255,255,.25)
-}
+.joy{position:fixed;bottom:20px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.15);border:2px solid rgba(255,255,255,.25)}
 #joyMove{left:20px}
-.knob{
-  width:60px; height:60px;
-  background:#fff; border-radius:50%;
-  position:absolute; left:50%; top:50%;
-  margin:-30px
-}
-#fireBtn{
-  position:fixed;
-  right:40px; bottom:60px;
-  width:90px; height:50px;
-  border-radius:14px;
-  background:#ffb703;
-  color:#000; font-weight:bold;
-  display:flex; align-items:center; justify-content:center
-}
+.knob{width:60px;height:60px;background:#fff;border-radius:50%;position:absolute;left:50%;top:50%;margin:-30px}
+#fireBtn{position:fixed;right:40px;bottom:60px;width:90px;height:50px;border-radius:14px;background:#ffb703;color:#000;font-weight:bold;display:flex;align-items:center;justify-content:center}
+
+/* HUD */
+#hud{position:fixed;top:10px;left:10px;font-weight:bold;background:rgba(0,0,0,.4);padding:8px 12px;border-radius:10px}
 </style>
 </head>
 
 <body>
 
-<!-- MENU -->
 <div id="menu">
   <div class="box">
     <h2>SlugBrawl</h2>
@@ -71,130 +41,95 @@ button{background:#facc15;color:#000}
   </div>
 </div>
 
+<div id="hud">Modo: Solo</div>
+
 <canvas id="c"></canvas>
 
-<!-- CONTROLES -->
 <div id="joyMove" class="joy"><div class="knob"></div></div>
 <div id="fireBtn">ATIRAR</div>
 
 <script>
-/* ===== CANVAS ===== */
 const c=document.getElementById("c"),ctx=c.getContext("2d");
 function resize(){c.width=innerWidth;c.height=innerHeight}
 addEventListener("resize",resize);resize();
 
-/* ===== AUDIO ===== */
 const AC=new (window.AudioContext||webkitAudioContext)();
-function sfx(freq){
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.frequency.value=freq;o.connect(g);g.connect(AC.destination);
-  o.start();
-  g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+.1);
-  o.stop(AC.currentTime+.1);
-}
+function sfx(f){const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=f;o.connect(g);g.connect(AC.destination);o.start();g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+.1);o.stop(AC.currentTime+.1)}
 
-/* ===== NETWORK ===== */
 const WS=(location.protocol==="https:"?"wss://":"ws://")+location.host;
 let ws,myId=null,snap=null;
 
 function join(){
   AC.resume();
   ws=new WebSocket(WS);
-  ws.onopen=()=>{
-    ws.send(JSON.stringify({
-      t:"join",
-      name:name.value||"Player",
-      room:room.value||"sala1",
-      cls:cls.value
-    }));
-  };
+  ws.onopen=()=>ws.send(JSON.stringify({t:"join",name:name.value||"Player",room:room.value||"solo",cls:cls.value}));
   ws.onmessage=e=>{
     const m=JSON.parse(e.data);
-    if(m.t==="you"){myId=m.id;menu.style.display="none";}
-    if(m.t==="snapshot") snap=m;
+    if(m.t==="you"){myId=m.id;menu.style.display="none"}
+    if(m.t==="snapshot"){snap=m;updateHud()}
   };
 }
 
-/* ===== INPUT ===== */
-let move={x:0,y:0};
-let aim={x:1,y:0};
-let firing=false;
+function updateHud(){
+  if(!snap) return;
+  const count=Object.keys(snap.players||{}).length;
+  hud.textContent="Modo: "+(count>1?"Online":"Solo");
+}
 
-/* JOYSTICK */
+let move={x:0,y:0},aim={x:1,y:0},firing=false;
+
 (()=>{
-  const joy=document.getElementById("joyMove"),knob=joy.firstChild;
+  const joy=joyMove,knob=joy.firstChild;
   let cx,cy;
   joy.onpointerdown=e=>{
     const r=joy.getBoundingClientRect();
-    cx=r.left+r.width/2; cy=r.top+r.height/2;
+    cx=r.left+r.width/2;cy=r.top+r.height/2;
     joy.setPointerCapture(e.pointerId);
   };
   joy.onpointermove=e=>{
     const dx=e.clientX-cx,dy=e.clientY-cy;
     const d=Math.hypot(dx,dy),m=Math.min(d,45);
-    const nx=dx/d*m||0, ny=dy/d*m||0;
+    const nx=dx/d*m||0,ny=dy/d*m||0;
     knob.style.transform=`translate(${nx}px,${ny}px)`;
-    move.x=nx/45; move.y=ny/45;
-
+    move.x=nx/45;move.y=ny/45;
     if(Math.abs(move.x)>0.1||Math.abs(move.y)>0.1){
       const l=Math.hypot(move.x,move.y);
-      aim.x=move.x/l; aim.y=move.y/l;
+      aim.x=move.x/l;aim.y=move.y/l;
     }
   };
-  joy.onpointerup=()=>{
-    knob.style.transform="";
-    move.x=move.y=0;
-  };
+  joy.onpointerup=()=>{knob.style.transform="";move.x=move.y=0};
 })();
 
 fireBtn.onpointerdown=()=>{firing=true;AC.resume()};
 fireBtn.onpointerup=()=>firing=false;
 
-/* ===== LOOP ===== */
 let last=0;
 function loop(t){
-  if(!snap||!snap.players||!snap.players[myId]){
-    requestAnimationFrame(loop);return;
-  }
-
+  if(!snap||!snap.players||!snap.players[myId]){requestAnimationFrame(loop);return;}
   if(ws&&t-last>50){
-    ws.send(JSON.stringify({
-      t:"input",
-      ix:move.x,
-      iy:move.y,
-      aimX:aim.x,
-      aimY:aim.y
-    }));
-    if(firing){
-      ws.send(JSON.stringify({t:"shoot",aimX:aim.x,aimY:aim.y}));
-      sfx(650);
-    }
+    ws.send(JSON.stringify({t:"input",ix:move.x,iy:move.y,aimX:aim.x,aimY:aim.y}));
+    if(firing){ws.send(JSON.stringify({t:"shoot",aimX:aim.x,aimY:aim.y}));sfx(650)}
     last=t;
   }
-
   draw();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-/* ===== DRAW ===== */
 function draw(){
   const me=snap.players[myId];
-  const camX=me.x-c.width/2, camY=me.y-c.height/2;
+  const camX=me.x-c.width/2,camY=me.y-c.height/2;
   ctx.clearRect(0,0,c.width,c.height);
-  ctx.save(); ctx.translate(-camX,-camY);
+  ctx.save();ctx.translate(-camX,-camY);
 
-  // MAPA
   ctx.fillStyle="#0f1a3a";
   ctx.fillRect(0,0,snap.map.w,snap.map.h);
 
-  // BALAS (AGORA FUNCIONA)
   snap.bullets.forEach(b=>{
-    ctx.fillStyle = b.from==="e" ? "#ff4d6d" : "#ffd60a";
+    ctx.fillStyle=b.from==="e"?"#ff4d6d":"#ffd60a";
     ctx.fillRect(b.x-3,b.y-3,6,6);
   });
 
-  // INIMIGOS + VIDA
   snap.enemies.forEach(e=>{
     ctx.fillStyle="orange";
     ctx.beginPath();ctx.arc(e.x,e.y,16,0,Math.PI*2);ctx.fill();
@@ -202,7 +137,6 @@ function draw(){
     ctx.fillRect(e.x-20,e.y-28,40*(e.hp/70),5);
   });
 
-  // JOGADORES + VIDA
   for(const [id,p] of Object.entries(snap.players)){
     ctx.fillStyle=id===myId?"cyan":"lime";
     ctx.beginPath();ctx.arc(p.x,p.y,18,0,Math.PI*2);ctx.fill();

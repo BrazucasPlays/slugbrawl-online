@@ -1,135 +1,72 @@
-const express = require("express");
-const http = require("http");
-const WebSocket = require("ws");
-const path = require("path");
+const express=require("express");
+const http=require("http");
+const WebSocket=require("ws");
+const path=require("path");
 
-const app = express();
-app.use(express.static(path.join(__dirname, "public")));
-app.get("/", (_, res) =>
-  res.sendFile(path.join(__dirname, "public", "index.html"))
-);
+const app=express();
+app.use(express.static("public"));
+const server=http.createServer(app);
+const wss=new WebSocket.Server({server});
 
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const MAP={w:1600,h:900};
+let players={},bullets=[],enemies=[],lifes=[],door={x:800,y:450,open:false},zone=0;
 
-const MAP = { w: 2000, h: 1200 };
-const ROOMS = new Map();
+function rnd(a,b){return a+Math.random()*(b-a);}
+function dist(a,b,c,d){return Math.hypot(a-c,b-d);}
 
-const rand = (a,b)=>a+Math.random()*(b-a);
-const d2 = (ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by;return dx*dx+dy*dy;};
+wss.on("connection",ws=>{
+  let id=Math.random().toString(36).slice(2,7);
+  players[id]={id,x:rnd(300,600),y:rnd(300,600),hp:100,kills:0,ix:0,iy:0};
+  ws.send(JSON.stringify({t:"id",id}));
 
-function getRoom(id){
-  if(!ROOMS.has(id)){
-    ROOMS.set(id,{
-      players:{}, bullets:[], enemies:[], lifes:[],
-      close:0, door:{x:rand(300,1700),y:rand(300,900),open:false}
-    });
-  }
-  return ROOMS.get(id);
-}
-
-wss.on("connection", ws=>{
-  let pid=null, rid=null;
-
-  ws.on("message", raw=>{
-    const m = JSON.parse(raw);
-
-    if(m.t==="join"){
-      rid=m.room||"sala1";
-      pid=Math.random().toString(36).slice(2,8);
-      const r=getRoom(rid);
-      r.players[pid]={
-        id:pid,name:m.name||"Player",cls:m.cls||"soldier",
-        x:rand(400,600),y:rand(400,600),
-        hp:120,max:120,ix:0,iy:0,aimX:1,aimY:0,kills:0
-      };
-      ws.send(JSON.stringify({t:"you",id:pid}));
-      return;
-    }
-
-    const r=getRoom(rid);
-    const p=r.players[pid];
+  ws.on("message",msg=>{
+    let m=JSON.parse(msg);
+    let p=players[id];
     if(!p) return;
 
-    if(m.t==="input"){
-      p.ix=m.ix; p.iy=m.iy;
-      if(m.aimX||m.aimY){p.aimX=m.aimX;p.aimY=m.aimY;}
-    }
-
+    if(m.t==="move"){p.ix=m.x;p.iy=m.y;}
     if(m.t==="shoot"){
-      r.bullets.push({
-        x:p.x+p.aimX*26,y:p.y+p.aimY*26,
-        vx:p.aimX*8,vy:p.aimY*8,from:pid,life:90
-      });
+      bullets.push({x:p.x,y:p.y,vx:m.ax*8,vy:m.ay*8,from:id});
     }
-
-    if(m.t==="reset"){
-      ROOMS.delete(rid);
-    }
+    if(m.t==="reset"){players={};bullets=[];enemies=[];lifes=[];zone=0;door.open=false;}
   });
 
-  ws.on("close",()=>{
-    if(rid&&pid){
-      const r=getRoom(rid);
-      delete r.players[pid];
-    }
-  });
+  ws.on("close",()=>delete players[id]);
 });
 
 setInterval(()=>{
-  for(const r of ROOMS.values()){
-    r.close=Math.min(500,r.close+0.25);
+  zone+=0.1;
+  if(Math.random()<0.03) enemies.push({x:rnd(100,1500),y:rnd(100,800),hp:50});
+  if(Math.random()<0.01) lifes.push({x:rnd(200,1400),y:rnd(200,700)});
 
-    if(Math.random()<0.02){
-      r.enemies.push({x:rand(200,1800),y:rand(200,1000),hp:80});
-    }
-    if(Math.random()<0.01){
-      r.lifes.push({x:rand(200,1800),y:rand(200,1000)});
-    }
-
-    for(const p of Object.values(r.players)){
-      p.x+=p.ix*3; p.y+=p.iy*3;
-      if(p.x<r.close||p.y<r.close||p.x>MAP.w-r.close||p.y>MAP.h-r.close){
-        p.hp-=0.4;
-      }
-      if(p.kills>=5) r.door.open=true;
-    }
-
-    for(const b of r.bullets){
-      b.x+=b.vx; b.y+=b.vy; b.life--;
-      for(const e of r.enemies){
-        if(d2(b.x,b.y,e.x,e.y)<900){
-          e.hp-=25; b.life=0;
-          if(e.hp<=0){
-            if(r.players[b.from]) r.players[b.from].kills++;
-          }
-        }
-      }
-    }
-    r.bullets=r.bullets.filter(b=>b.life>0);
-    r.enemies=r.enemies.filter(e=>e.hp>0);
-
-    for(const l of r.lifes){
-      for(const p of Object.values(r.players)){
-        if(d2(l.x,l.y,p.x,p.y)<900){
-          p.hp=Math.min(p.max,p.hp+40);
-          l.dead=true;
-        }
-      }
-    }
-    r.lifes=r.lifes.filter(l=>!l.dead);
+  for(let p of Object.values(players)){
+    p.x+=p.ix*3; p.y+=p.iy*3;
+    if(p.x<zone||p.y<zone||p.x>MAP.w-zone||p.y>MAP.h-zone) p.hp-=0.3;
+    if(p.kills>=5) door.open=true;
   }
-},50);
 
-setInterval(()=>{
-  for(const [rid,r] of ROOMS.entries()){
-    const msg=JSON.stringify({t:"snap",r});
-    wss.clients.forEach(ws=>{
-      if(ws.readyState===1) ws.send(msg);
+  bullets.forEach(b=>{
+    b.x+=b.vx; b.y+=b.vy;
+    enemies.forEach(e=>{
+      if(dist(b.x,b.y,e.x,e.y)<20){
+        e.hp-=25; b.dead=true;
+        if(e.hp<=0 && players[b.from]) players[b.from].kills++;
+      }
     });
-  }
+  });
+
+  bullets=bullets.filter(b=>!b.dead);
+  enemies=enemies.filter(e=>e.hp>0);
+
+  lifes.forEach(l=>{
+    for(let p of Object.values(players)){
+      if(dist(l.x,l.y,p.x,p.y)<25){p.hp=Math.min(100,p.hp+30); l.dead=true;}
+    }
+  });
+  lifes=lifes.filter(l=>!l.dead);
+
+  let state={t:"state",players,enemies,bullets,lifes,door,zone};
+  wss.clients.forEach(c=>c.readyState===1&&c.send(JSON.stringify(state)));
 },50);
 
-server.listen(process.env.PORT||10000,()=>{
-  console.log("Servidor rodando");
-});
+server.listen(process.env.PORT||10000,()=>console.log("Rodando"));

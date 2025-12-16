@@ -5,11 +5,12 @@
 <style>
 body{margin:0;background:#000;color:#fff;font-family:Arial}
 canvas{display:block}
-#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7)}
+#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index: 100;}
 #box{background:#111;padding:16px;border-radius:12px;width:280px}
 input,button{width:100%;margin-top:10px;padding:12px;border-radius:8px;border:none}
 button{background:#ffc;color:#000;font-weight:bold}
 #hud{position:fixed;top:10px;left:10px;font-weight:bold}
+#soundToggle{position:fixed;top:10px;right:10px;padding:10px;background:#333;color:#fff;border-radius:8px;cursor:pointer}
 
 #joy{position:fixed;left:20px;bottom:20px;width:140px;height:140px;border-radius:50%;background:#333}
 #knob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px;border-radius:50%;background:#fff}
@@ -28,6 +29,7 @@ button{background:#ffc;color:#000;font-weight:bold}
 </div>
 
 <div id="hud"></div>
+<div id="soundToggle" onclick="Audio.toggleMute()">🔊 Som ON</div>
 <canvas id="c"></canvas>
 <div id="joy"><div id="knob"></div></div>
 <div id="fire">ATIRAR</div>
@@ -35,67 +37,153 @@ button{background:#ffc;color:#000;font-weight:bold}
 <script>
 const c=document.getElementById("c"),ctx=c.getContext("2d");
 c.width=innerWidth;c.height=innerHeight;
-const MAP_WIDTH = 1800; // Constante do mapa (Server)
+const MAP_WIDTH = 1800; 
 const MAP_HEIGHT = 1000;
+let lastPlayerHp = 100; // Para detectar dano no cliente
 
-// --- NOVO MÓDULO 1: Assets e Pré-Carregamento ---
+// --- MÓDULO 1: Assets (Imagens e Áudio) ---
 const Assets = {
     sprites: {},
+    audioBuffers: {},
+    totalAssets: 0,
+    loadedCount: 0,
+
     sources: {
-        player: 'img/player_sprite.png',    // Player (ex: 64x64)
-        enemy: 'img/enemy_sprite.png',      // Inimigo (ex: 50x50)
-        door_closed: 'img/door_closed.png', // Porta fechada (ex: 40x60)
-        door_open: 'img/door_open.png',     // Porta aberta (ex: 40x60)
-        life_pack: 'img/life_pack.png'      // Vida (ex: 30x30)
+        // IMAGENS (Sprites)
+        player: { path: 'img/player_sheet.png', type: 'image' },
+        enemy: { path: 'img/enemy_sheet.png', type: 'image' },
+        door_closed: { path: 'img/door_closed.png', type: 'image' },
+        door_open: { path: 'img/door_open.png', type: 'image' },
+        life_pack: { path: 'img/life_pack.png', type: 'image' },
+        // ÁUDIOS (WAV/MP3/OGG)
+        shoot_sound: { path: 'audio/shoot.wav', type: 'audio' },
+        damage_sound: { path: 'audio/damage.wav', type: 'audio' },
+        death_sound: { path: 'audio/death.wav', type: 'audio' },
+        heal_sound: { path: 'audio/heal.wav', type: 'audio' }
     },
 
     loadAll(callback) {
-        let loadedCount = 0;
-        const totalCount = Object.keys(this.sources).length;
-        if(totalCount === 0) { callback(); return; }
+        this.totalAssets = Object.keys(this.sources).length;
+        if(this.totalAssets === 0) { callback(); return; }
 
         for (let key in this.sources) {
-            const img = new Image();
-            img.src = this.sources[key];
-            img.onload = () => {
-                loadedCount++;
-                if (loadedCount >= totalCount) {
-                    console.log("Assets carregados!");
-                    callback();
-                }
-            };
-            this.sprites[key] = img;
+            const src = this.sources[key];
+            if (src.type === 'image') {
+                const img = new Image();
+                img.src = src.path;
+                img.onload = () => this.onAssetLoaded(callback, key, img);
+                this.sprites[key] = img;
+            } else if (src.type === 'audio') {
+                fetch(src.path)
+                    .then(response => response.arrayBuffer())
+                    .then(buffer => Audio.context.decodeAudioData(buffer))
+                    .then(decodedData => this.onAssetLoaded(callback, key, decodedData))
+                    .catch(err => {
+                        console.error(`Erro ao carregar áudio ${key}:`, err);
+                        this.onAssetLoaded(callback); // Não bloqueia o jogo
+                    });
+            }
+        }
+    },
+
+    onAssetLoaded(callback, key, data) {
+        this.loadedCount++;
+        if (this.sources[key].type === 'audio') {
+            this.audioBuffers[key] = data;
+        }
+
+        if (this.loadedCount >= this.totalAssets) {
+            console.log("Todos os assets carregados!");
+            callback();
         }
     }
 };
+// --- FIM MÓDULO 1 ---
+
+
+// --- MÓDULO 2: Audio (Web Audio API) ---
+const Audio = {
+    context: new (window.AudioContext || window.webkitAudioContext)(),
+    masterGain: null,
+    isMuted: false,
+
+    init() {
+        this.masterGain = this.context.createGain();
+        this.masterGain.connect(this.context.destination);
+    },
+
+    playSound(key, volume = 1.0) {
+        if (this.isMuted || !Assets.audioBuffers[key]) return;
+
+        const buffer = Assets.audioBuffers[key];
+        const source = this.context.createBufferSource();
+        source.buffer = buffer;
+
+        const gainNode = this.context.createGain();
+        gainNode.gain.value = volume;
+
+        source.connect(gainNode);
+        gainNode.connect(this.masterGain);
+        source.start(0);
+    },
+
+    toggleMute() {
+        this.isMuted = !this.isMuted;
+        this.masterGain.gain.value = this.isMuted ? 0 : 1;
+        document.getElementById('soundToggle').textContent = this.isMuted ? '🔇 Som OFF' : '🔊 Som ON';
+    }
+};
+Audio.init();
+// --- FIM MÓDULO 2 ---
+
 
 // --- INICIALIZAÇÃO DE VARIÁVEIS E WEBSOCKET ---
 const ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
 let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
 
 function join(){
+  // *IMPORTANTE: Inicia o AudioContext com uma interação do usuário
+  Audio.context.resume(); 
   roomKey=document.getElementById("room").value||"solo";
   ws.send(JSON.stringify({
     t:"join",
     name:document.getElementById("name").value,
     room:roomKey
   }));
-  // Menu só é escondido após o join.
   document.getElementById("menu").style.display="none"; 
 }
 
 ws.onmessage=e=>{
   const m=JSON.parse(e.data);
-  if(m.t==="you"){myId=m.id;}
-  if(m.t==="state") state=m.rooms[roomKey];
+  if(m.t==="you"){
+    myId=m.id;
+    lastPlayerHp = m.lastHp; // Inicializa a vida
+  }
+  if(m.t==="state"){
+    state=m.rooms[roomKey];
+    
+    // LÓGICA DE ÁUDIO DE DANO E MORTE
+    if(myId && state.players[myId]) {
+      const me = state.players[myId];
+      if(me.hp < lastPlayerHp && me.hp > 0) {
+        Audio.playSound('damage_sound', 0.8);
+      } else if (me.hp === 0 && lastPlayerHp > 0) {
+        Audio.playSound('death_sound', 1.0);
+      } else if (me.hp > lastPlayerHp) {
+        Audio.playSound('heal_sound', 0.7);
+      }
+      lastPlayerHp = me.hp;
+    }
+  }
 };
 
-// --- CONTROLES (inalterados) ---
+// --- CONTROLES (Adiciona som ao atirar) ---
 const joy=document.getElementById("joy");
 const knob=document.getElementById("knob");
 let center={x:0,y:0},drag=false,MAX=50;
 
 joy.onpointerdown=e=>{
+  Audio.context.resume(); // Garante que o contexto está ativo
   const r=joy.getBoundingClientRect();
   center.x=r.left+r.width/2;
   center.y=r.top+r.height/2;
@@ -122,28 +210,75 @@ joy.onpointerup=()=>{
 };
 
 document.getElementById("fire").onclick=()=>{
+  Audio.playSound('shoot_sound', 0.5); // Toca o som de tiro
   ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
 };
 
-// --- NOVO MÓDULO 2: Renderer (Draw Loop) ---
+
+// --- MÓDULO 3: Renderer (Draw Loop com Sprites e Animação) ---
+const Animations = {
+    player: {
+        idle: { frames: 1, fps: 1, frameSize: 64 },
+        walk: { frames: 8, fps: 12, frameSize: 64 }
+    },
+    enemy: {
+        idle: { frames: 1, fps: 1, frameSize: 50 },
+        // ... (Adicionar animação de inimigo aqui)
+    }
+};
+
 const Renderer = {
-    PLAYER_VISUAL_SIZE: 32, // Para desenhar 64x64 centralizado
-    ENEMY_VISUAL_SIZE: 25,  // Para desenhar 50x50 centralizado
-    
-    draw() {
+    PLAYER_VISUAL_SIZE: 32, 
+    ENEMY_VISUAL_SIZE: 25, 
+    lastTime: 0,
+
+    // Função que gerencia a animação no cliente
+    updateAnimations(dt) {
+        for(const p of Object.values(state.players)){
+            if (!p.anim) p.anim = { state: 'idle', frame: 0, time: 0 };
+            
+            // Determina estado: Walk se houver movimento
+            const isMoving = Math.hypot(p.ix, p.iy) > 0.1;
+            const stateKey = isMoving ? 'walk' : 'idle';
+            const animDef = Animations.player[stateKey];
+            
+            if (p.anim.state !== stateKey) {
+                p.anim.state = stateKey;
+                p.anim.frame = 0;
+                p.anim.time = 0;
+            }
+
+            // Atualiza tempo e frame
+            p.anim.time += dt;
+            const frameDuration = 1 / animDef.fps;
+            
+            if (p.anim.time >= frameDuration) {
+                p.anim.frame = (p.anim.frame + 1) % animDef.frames;
+                p.anim.time -= frameDuration;
+            }
+        }
+    },
+
+    draw(timestamp) {
+        if (!Renderer.lastTime) Renderer.lastTime = timestamp;
+        const dt = (timestamp - Renderer.lastTime) / 1000; // Delta Time em segundos
+        Renderer.lastTime = timestamp;
+
         ctx.clearRect(0,0,c.width,c.height);
         if(!state||!myId){requestAnimationFrame(Renderer.draw);return;}
 
+        // ATUALIZAÇÃO DA ANIMAÇÃO ANTES DE DESENHAR
+        Renderer.updateAnimations(dt); 
+
         const me=state.players[myId];
         ctx.save();
-        // Câmera segue o jogador
         ctx.translate(c.width/2-me.x,c.height/2-me.y);
         
-        // 1. Fundo/Mapa (Gramado simples)
-        ctx.fillStyle = '#4f6c4c'; // Cor base do chão
+        // 1. Fundo
+        ctx.fillStyle = '#4f6c4c'; 
         ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT); 
 
-        // 2. Elementos: Porta e Vidas
+        // 2. Elementos Estáticos
         Renderer.drawDoor(state.door);
         Renderer.drawLifes(state.lifes);
 
@@ -156,11 +291,10 @@ const Renderer = {
         // 5. Players
         Renderer.drawPlayers(state.players, myId);
         
-        // 6. Zona de Dano (Sempre por cima, exceto HUD)
+        // 6. Zona de Dano
         Renderer.drawZone(state.zone);
 
-
-        ctx.restore(); // Volta o contexto para que o HUD não seja afetado
+        ctx.restore(); 
 
         document.getElementById("hud").textContent=
             `HP: ${Math.floor(me.hp)} | Kills: ${me.kills}`;
@@ -168,11 +302,10 @@ const Renderer = {
         requestAnimationFrame(Renderer.draw);
     },
 
-    // --- FUNÇÕES DE DESENHO COM SPRITES ---
-
+    // --- FUNÇÕES DE DESENHO COM SPRITES E ANIMAÇÃO ---
     drawPlayers(players, myId) {
         for(const p of Object.values(players)){
-            if(p.hp <= 0) continue; // Não desenha players mortos
+            if(p.hp <= 0) continue;
             
             ctx.save();
             ctx.translate(p.x, p.y);
@@ -180,21 +313,23 @@ const Renderer = {
             const size = Renderer.PLAYER_VISUAL_SIZE;
             const sprite = Assets.sprites.player;
 
-            // Determina a direção para "virar" o sprite (Flip Horizontal)
+            // Determina a direção (para flip)
             let currentAimX = p.id === myId ? aim.x : p.ix;
-            
-            // Se a direção é negativa (olhando para a esquerda), espelha o contexto
             if (currentAimX < 0) {
                  ctx.scale(-1, 1);
             }
 
-            // Desenha a imagem (Recorte 0, Desenho Centralizado)
-            // Assumindo sprite de 64x64
-            ctx.drawImage(sprite, 
-                          0, 0, 64, 64, // Recorte (Exemplo: Primeiro quadro de 64x64)
-                          -size, -size, size * 2, size * 2); // Desenho (32*2 = 64px de largura total)
+            // Lógica de ANIMAÇÃO
+            const animDef = Animations.player[p.anim.state];
+            const frameWidth = animDef.frameSize;
+            const sx = p.anim.frame * frameWidth;
 
-            ctx.restore(); // Volta o contexto para que a HP bar não fique espelhada
+            // Desenho do frame atual
+            ctx.drawImage(sprite, 
+                          sx, 0, frameWidth, frameWidth, // Recorte (Sprite Sheet)
+                          -size, -size, size * 2, size * 2); // Destino (Canvas)
+
+            ctx.restore(); 
             
             // HP bar
             ctx.fillStyle="rgba(0,0,0,.5)";
@@ -202,7 +337,7 @@ const Renderer = {
             ctx.fillStyle="#22c55e";
             ctx.fillRect(p.x-22,p.y-28,44*(p.hp/p.max),6);
 
-            // Nome do Player
+            // Nome
             ctx.textAlign = 'center';
             ctx.fillStyle = p.id===myId?"#ffc":"#fff";
             ctx.font = 'bold 12px Arial';
@@ -211,39 +346,37 @@ const Renderer = {
     },
 
     drawEnemies(enemies) {
+        // ... (Lógica similar de desenho de inimigos com Assets.sprites.enemy)
         enemies.forEach(e => {
             const size = Renderer.ENEMY_VISUAL_SIZE;
             const sprite = Assets.sprites.enemy;
             
-            // Desenho do Inimigo (Assumindo sprite de 50x50)
+            // Simples: Desenho do primeiro quadro (sem animação de inimigo por enquanto)
             ctx.drawImage(sprite, 
-                          0, 0, 50, 50, // Recorte (Exemplo: Primeiro quadro de 50x50)
-                          e.x - size, e.y - size, size * 2, size * 2); // Desenho (50px de largura total)
+                          0, 0, 50, 50, 
+                          e.x - size, e.y - size, size * 2, size * 2); 
             
             // HP bar
             ctx.fillStyle="rgba(0,0,0,.5)";
             ctx.fillRect(e.x-15,e.y-22,30,4);
             ctx.fillStyle="#f00";
-            ctx.fillRect(e.x-15,e.y-22,30*(e.hp/60),4); // Max HP 60 (Server logic)
+            ctx.fillRect(e.x-15,e.y-22,30*(e.hp/60),4); 
         });
     },
 
     drawDoor(door) {
         const sprite = door.open ? Assets.sprites.door_open : Assets.sprites.door_closed;
-        // Desenha no mesmo local do antigo fillRect (40x60)
         ctx.drawImage(sprite, door.x - 20, door.y - 30, 40, 60);
     },
 
     drawLifes(lifes) {
         lifes.forEach(l => {
             const sprite = Assets.sprites.life_pack;
-            // Desenha a vida centralizada (30x30)
             ctx.drawImage(sprite, l.x - 15, l.y - 15, 30, 30);
         });
     },
 
     drawBullets(bullets) {
-        // Mantido como quadrado simples por ser mais performático
         bullets.forEach(b=>{
             ctx.fillStyle=b.from==="e"?"#ff4d6d":"#fff";
             ctx.fillRect(b.x-2,b.y-2,4,4);
@@ -251,23 +384,18 @@ const Renderer = {
     },
 
     drawZone(zone) {
-        // Zona Fechando: desenha o mapa escurecido nas bordas
         ctx.fillStyle = 'rgba(255, 0, 0, 0.15)'; 
-        // Borda superior
         ctx.fillRect(0, 0, MAP_WIDTH, zone); 
-        // Borda inferior
         ctx.fillRect(0, MAP_HEIGHT - zone, MAP_WIDTH, zone); 
-        // Borda esquerda
         ctx.fillRect(0, zone, zone, MAP_HEIGHT - 2 * zone);
-        // Borda direita
         ctx.fillRect(MAP_WIDTH - zone, zone, zone, MAP_HEIGHT - 2 * zone);
     }
 };
+// --- FIM MÓDULO 3 ---
+
 
 // --- PONTO DE ENTRADA FINAL ---
-// O jogo só inicia o loop de renderização (Renderer.draw) após carregar os assets.
 Assets.loadAll(() => {
-    // A função 'join' controla o aparecimento do menu.
     requestAnimationFrame(Renderer.draw);
 });
 </script>

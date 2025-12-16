@@ -41,17 +41,15 @@ const MAP_WIDTH = 1800;
 const MAP_HEIGHT = 1000;
 let lastPlayerHp = 100;
 
-// --- FUNÇÃO PARA GERAR AUDIO SINTÉTICO (Substitui arquivos .wav) ---
+// --- FUNÇÃO PARA GERAR AUDIO SINTÉTICO ---
 function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
     const sampleRate = 44100;
     const numSamples = sampleRate * duration;
     const buffer = Audio.context.createBuffer(1, numSamples, sampleRate);
     const data = buffer.getChannelData(0);
-
     for (let i = 0; i < numSamples; i++) {
         const time = i / sampleRate;
         const volume = Math.exp(-time / decay);
-        
         let sample;
         if (type === 'sine') {
             sample = Math.sin(2 * Math.PI * freq * time);
@@ -65,19 +63,41 @@ function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
     return buffer;
 }
 
-// --- MÓDULO 1: Audio Assets e Controle ---
+// --- MÓDULO 1: Assets (Carregando o Sprite Sheet e Áudios) ---
 const Assets = {
+    sprites: {},
     audioBuffers: {},
+    
+    // DEFINIÇÃO DOS ASSETS
+    sources: {
+        player_sheet: { path: 'img/player_sheet.png', type: 'image' }, // SEU SPRITE
+        // Usamos círculos para inimigos/itens, então não precisamos deles aqui.
+    },
+    
     loadAll(callback) {
+        // Geração dos Áudios Sintéticos
         this.audioBuffers.shoot_sound = generateSynthAudio(800, 0.08, 'square', 0.05);
         this.audioBuffers.damage_sound = generateSynthAudio(150, 0.2, 'sine', 0.1);
         this.audioBuffers.heal_sound = generateSynthAudio(1200, 0.15, 'sine', 0.08);
         this.audioBuffers.death_sound = generateSynthAudio(60, 0.5, 'square', 0.2);
         
-        callback();
+        // Carregamento da Folha de Sprite
+        const img = new Image();
+        img.src = this.sources.player_sheet.path;
+        img.onload = () => {
+            this.sprites.player = img;
+            console.log("Player Sprite Sheet carregada!");
+            callback();
+        };
+        img.onerror = () => {
+            console.error("Erro ao carregar player_sheet.png. Verifique o nome e a pasta.");
+            // Caso falhe, ainda rodamos, mas o player não aparecerá.
+            callback(); 
+        };
     }
 };
 
+// --- MÓDULO 2: Audio (Web Audio API) ---
 const Audio = {
     context: new (window.AudioContext || window.webkitAudioContext)(),
     masterGain: null,
@@ -90,14 +110,11 @@ const Audio = {
 
     playSound(key, volume = 1.0) {
         if (this.isMuted || !Assets.audioBuffers[key]) return;
-
         const buffer = Assets.audioBuffers[key];
         const source = this.context.createBufferSource();
         source.buffer = buffer;
-
         const gainNode = this.context.createGain();
         gainNode.gain.value = volume;
-
         source.connect(gainNode);
         gainNode.connect(this.masterGain);
         source.start(0);
@@ -128,29 +145,20 @@ function join(){
 
 ws.onmessage=e=>{
   const m=JSON.parse(e.data);
-  if(m.t==="you"){
-    myId=m.id;
-    lastPlayerHp = m.lastHp;
-  }
+  if(m.t==="you"){ myId=m.id; lastPlayerHp = m.lastHp; }
   if(m.t==="state"){
     state=m.rooms[roomKey];
-    
-    // LÓGICA DE ÁUDIO DE DANO
     if(myId && state.players[myId]) {
       const me = state.players[myId];
-      if(me.hp < lastPlayerHp && me.hp > 0) {
-        Audio.playSound('damage_sound', 0.8);
-      } else if (me.hp === 0 && lastPlayerHp > 0) {
-        Audio.playSound('death_sound', 1.0);
-      } else if (me.hp > lastPlayerHp) {
-        Audio.playSound('heal_sound', 0.7);
-      }
+      if(me.hp < lastPlayerHp && me.hp > 0) { Audio.playSound('damage_sound', 0.8); } 
+      else if (me.hp === 0 && lastPlayerHp > 0) { Audio.playSound('death_sound', 1.0); } 
+      else if (me.hp > lastPlayerHp) { Audio.playSound('heal_sound', 0.7); }
       lastPlayerHp = me.hp;
     }
   }
 };
 
-// --- CONTROLES ---
+// --- CONTROLES (inalterado) ---
 const joy=document.getElementById("joy");
 const knob=document.getElementById("knob");
 let center={x:0,y:0},drag=false,MAX=50;
@@ -188,11 +196,70 @@ document.getElementById("fire").onclick=()=>{
 };
 
 
-// --- MÓDULO 2: Renderer (Desenho de CÍRCULOS) ---
+// --- MÓDULO 3: Renderer (Com a sua Folha de Sprite) ---
+const FRAME_SIZE = 80; // Tamanho estimado de cada quadro do seu sprite (em pixels)
+const WALK_FRAMES = 3; // Os 3 primeiros quadros para andar/atirar
+const DEATH_FRAMES = 2; // Os 2 últimos quadros para morrer
+
+const Animations = {
+    player: {
+        idle: { frames: 1, fps: 1, frameSize: FRAME_SIZE, startFrame: 0 },
+        walk: { frames: WALK_FRAMES, fps: 8, frameSize: FRAME_SIZE, startFrame: 0 },
+        death: { frames: DEATH_FRAMES, fps: 1, frameSize: FRAME_SIZE, startFrame: 3 } // Quadro 4 e 5
+    },
+};
+
 const Renderer = {
+    PLAYER_VISUAL_SIZE: 30, // Tamanho que o sprite aparecerá na tela (60x60)
+    ENEMY_VISUAL_SIZE: 14,
+    lastTime: 0,
+
+    updateAnimations(dt) {
+        for(const p of Object.values(state.players)){
+            if (!p.anim) p.anim = { state: 'idle', frame: 0, time: 0 };
+            
+            // Determina o estado
+            let stateKey;
+            if (p.hp <= 0) {
+                stateKey = 'death';
+            } else {
+                const isMoving = Math.hypot(p.ix, p.iy) > 0.1;
+                stateKey = isMoving ? 'walk' : 'idle';
+            }
+            
+            const animDef = Animations.player[stateKey];
+            
+            if (p.anim.state !== stateKey) {
+                p.anim.state = stateKey;
+                p.anim.frame = 0;
+                p.anim.time = 0;
+            }
+
+            p.anim.time += dt;
+            const frameDuration = 1 / animDef.fps;
+            
+            if (p.anim.time >= frameDuration) {
+                p.anim.frame = (p.anim.frame + 1);
+                // Death frame: para no último quadro
+                if(p.anim.state === 'death' && p.anim.frame >= animDef.frames){
+                    p.anim.frame = animDef.frames - 1; 
+                } else {
+                    p.anim.frame %= animDef.frames; // Loop para Idle/Walk
+                }
+                p.anim.time -= frameDuration;
+            }
+        }
+    },
+
     draw(timestamp) {
+        if (!Renderer.lastTime) Renderer.lastTime = timestamp;
+        const dt = (timestamp - Renderer.lastTime) / 1000;
+        Renderer.lastTime = timestamp;
+
         ctx.clearRect(0,0,c.width,c.height);
         if(!state||!myId){requestAnimationFrame(Renderer.draw);return;}
+
+        Renderer.updateAnimations(dt); 
 
         const me=state.players[myId];
         ctx.save();
@@ -201,11 +268,15 @@ const Renderer = {
         ctx.fillStyle = '#4f6c4c'; 
         ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT); 
 
+        // Como não temos sprites para eles, mantemos círculos:
         Renderer.drawDoor(state.door);
         Renderer.drawLifes(state.lifes);
         Renderer.drawBullets(state.bullets);
         Renderer.drawEnemies(state.enemies);
-        Renderer.drawPlayers(state.players, myId); // CÍRCULOS
+        
+        // Player com Sprite Sheet
+        Renderer.drawPlayers(state.players, myId); 
+        
         Renderer.drawZone(state.zone);
 
         ctx.restore(); 
@@ -217,13 +288,36 @@ const Renderer = {
     },
 
     drawPlayers(players, myId) {
-        for(const p of Object.values(players)){
-            if(p.hp <= 0) continue;
-            
-            // CÍRCULO DO PLAYER
-            ctx.fillStyle=p.id===myId?"#0f0":"#f00";
-            ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
+        const sprite = Assets.sprites.player;
+        if (!sprite) return; // Se o sprite não carregou, não desenha
 
+        for(const p of Object.values(players)){
+            // Se o player está morto e o último quadro de morte já foi exibido, não desenha
+            if(p.hp <= 0 && p.anim.state === 'death' && p.anim.frame === DEATH_FRAMES - 1) continue; 
+            
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            
+            const size = Renderer.PLAYER_VISUAL_SIZE;
+            
+            let currentAimX = p.id === myId ? aim.x : p.ix;
+            if (currentAimX < 0) { ctx.scale(-1, 1); }
+
+            // Lógica de ANIMAÇÃO com base na Folha de Sprite
+            const animDef = Animations.player[p.anim.state];
+            const frameWidth = animDef.frameSize;
+            
+            // O índice do quadro na Sprite Sheet é o (frame base + frame da animação)
+            const spriteIndex = animDef.startFrame + p.anim.frame; 
+            const sx = spriteIndex * frameWidth;
+
+            // Desenho do frame atual
+            ctx.drawImage(sprite, 
+                          sx, 0, frameWidth, frameWidth, // Recorte (Ex: 0, 80, 160, 240...)
+                          -size, -size * 1.5, size * 2, size * 2); // Destino (60x60, ajustado para o centro)
+
+            ctx.restore(); 
+            
             // HP bar
             ctx.fillStyle="rgba(0,0,0,.5)";
             ctx.fillRect(p.x-22,p.y-28,44,6);
@@ -238,12 +332,11 @@ const Renderer = {
         }
     },
 
+    // --- FUNÇÕES DE DESENHO SIMPLIFICADAS (CÍRCULOS) ---
     drawEnemies(enemies) {
         enemies.forEach(e => {
-            // CÍRCULO DO INIMIGO
             ctx.fillStyle="#ff0";
             ctx.beginPath();ctx.arc(e.x,e.y,14,0,Math.PI*2);ctx.fill();
-            
             // HP bar
             ctx.fillStyle="rgba(0,0,0,.5)";
             ctx.fillRect(e.x-15,e.y-22,30,4);
@@ -259,7 +352,6 @@ const Renderer = {
 
     drawLifes(lifes) {
         lifes.forEach(l => {
-            // CÍRCULO DE VIDA
             ctx.fillStyle="#fff";
             ctx.beginPath();ctx.arc(l.x,l.y,12,0,Math.PI*2);ctx.fill();
         });
@@ -276,7 +368,7 @@ const Renderer = {
         ctx.fillStyle = 'rgba(255, 0, 0, 0.15)'; 
         ctx.fillRect(0, 0, MAP_WIDTH, zone); 
         ctx.fillRect(0, MAP_HEIGHT - zone, MAP_WIDTH, zone); 
-        ctx.fillRect(0, zone, zone, MAP_HEIGHT - 2 * zone);
+        ctx.fillRect(0, zone, zone, MAP.HEIGHT - 2 * zone);
         ctx.fillRect(MAP_WIDTH - zone, zone, zone, MAP_HEIGHT - 2 * zone);
     }
 };

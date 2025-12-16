@@ -1,147 +1,88 @@
 <!doctype html>
-<html lang="pt-br">
+<html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SlugBrawl</title>
 <style>
-html,body{margin:0;overflow:hidden;background:#0b0f1a;color:#fff;font-family:Arial;touch-action:none}
+html,body{margin:0;background:#0b1020;overflow:hidden;color:#fff;font-family:Arial}
 canvas{display:block}
-#menu,#end{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.75);z-index:10}
-#menu .box{background:#111827;padding:20px;border-radius:16px;width:90%;max-width:360px}
-input,select,button{width:100%;margin-top:10px;padding:12px;border-radius:12px;border:none;font-weight:bold}
-button{background:#facc15;color:#000}
-#end{display:none;flex-direction:column;font-size:26px}
-#hud{position:fixed;top:10px;left:10px;background:rgba(0,0,0,.4);padding:8px 12px;border-radius:10px}
-.joy{position:fixed;bottom:20px;left:20px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.15)}
-.knob{width:60px;height:60px;background:#fff;border-radius:50%;position:absolute;left:50%;top:50%;margin:-30px}
-#fire{position:fixed;right:40px;bottom:60px;width:90px;height:50px;border-radius:14px;background:#ffb703;color:#000;font-weight:bold;display:flex;align-items:center;justify-content:center}
+#menu{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center}
+button,input,select{padding:12px;margin:6px;border-radius:10px;border:none}
 </style>
 </head>
 <body>
 
 <div id="menu">
-  <div class="box">
+  <div>
     <h2>SlugBrawl</h2>
-    <input id="name" placeholder="Seu nome">
     <input id="room" placeholder="Sala">
     <select id="cls">
       <option value="soldier">Soldado</option>
       <option value="tank">Tank</option>
     </select>
-    <button onclick="join()">ENTRAR</button>
+    <button onclick="start()">Jogar</button>
   </div>
 </div>
 
-<div id="hud">Kills: 0</div>
-<div id="end"><div id="endText"></div><button onclick="location.reload()">JOGAR DE NOVO</button></div>
-
 <canvas id="c"></canvas>
-<div class="joy" id="joy"><div class="knob"></div></div>
-<div id="fire">ATIRAR</div>
 
 <script>
-const c=document.getElementById("c"),ctx=c.getContext("2d");
-function rs(){c.width=innerWidth;c.height=innerHeight} addEventListener("resize",rs); rs();
+const c = document.getElementById("c"), ctx = c.getContext("2d");
+function resize(){c.width=innerWidth;c.height=innerHeight}
+addEventListener("resize",resize);resize();
 
-const WS=(location.protocol==="https:"?"wss://":"ws://")+location.host;
-let ws,myId=null,snap=null,move={x:0,y:0},aim={x:1,y:0},fire=false;
+const WS = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host);
+let id=null,state=null,ix=0,iy=0;
 
-function join(){
-  ws=new WebSocket(WS);
-  ws.onopen=()=>ws.send(JSON.stringify({t:"join",name:name.value,room:room.value||"solo",cls:cls.value}));
-  ws.onmessage=e=>{
-    const m=JSON.parse(e.data);
-    if(m.t==="you"){myId=m.id;menu.style.display="none";}
-    if(m.t==="snapshot"){
-      snap=m;
-      const me=snap.players[myId];
-      hud.textContent=`Kills: ${me.kills}`;
-      if(snap.result){
-        end.style.display="flex";
-        endText.textContent = snap.result.win===myId ? `VITÓRIA! Kills: ${me.kills}` : `DERROTA! Kills: ${me.kills}`;
-      }
-    }
-  };
+WS.onmessage = e => {
+  const m = JSON.parse(e.data);
+  if(m.t==="you") id=m.id;
+  if(m.t==="state") state=m.room;
+};
+
+function start(){
+  WS.send(JSON.stringify({t:"join",room:room.value||"solo",cls:cls.value}));
+  menu.style.display="none";
 }
 
-(()=>{
-  const joy=document.getElementById("joy"),kn=joy.firstChild; let cx,cy;
-  joy.onpointerdown=e=>{const r=joy.getBoundingClientRect();cx=r.left+r.width/2;cy=r.top+r.height/2;joy.setPointerCapture(e.pointerId);}
-  joy.onpointermove=e=>{
-    const dx=e.clientX-cx,dy=e.clientY-cy,d=Math.hypot(dx,dy),m=Math.min(d,45);
-    const nx=dx/d*m||0,ny=dy/d*m||0; kn.style.transform=`translate(${nx}px,${ny}px)`;
-    move.x=nx/45; move.y=ny/45;
-    if(Math.abs(move.x)>0.1||Math.abs(move.y)>0.1){
-      const l=Math.hypot(move.x,move.y); aim.x=move.x/l; aim.y=move.y/l;
-    }
-  };
-  joy.onpointerup=()=>{kn.style.transform=""; move.x=move.y=0;}
-})();
-fireBtn=document.getElementById("fire");
-fireBtn.onpointerdown=()=>fire=true;
-fireBtn.onpointerup=()=>fire=false;
+addEventListener("keydown",e=>{
+  if(e.key==="w")iy=-1;
+  if(e.key==="s")iy=1;
+  if(e.key==="a")ix=-1;
+  if(e.key==="d")ix=1;
+});
+addEventListener("keyup",()=>{ix=iy=0});
 
-let last=0;
-function loop(t){
-  if(!snap||!snap.players||!snap.players[myId]){requestAnimationFrame(loop);return;}
-  if(ws&&t-last>50){
-    ws.send(JSON.stringify({t:"input",ix:move.x,iy:move.y,aimX:aim.x,aimY:aim.y}));
-    if(fire) ws.send(JSON.stringify({t:"shoot",aimX:aim.x,aimY:aim.y}));
-    last=t;
-  }
-  draw(); requestAnimationFrame(loop);
-}
-requestAnimationFrame(loop);
+setInterval(()=>{
+  if(id) WS.send(JSON.stringify({t:"input",ix,iy}));
+},50);
 
-function draw(){
-  const me=snap.players[myId];
-  const camX=me.x-c.width/2, camY=me.y-c.height/2;
-  ctx.clearRect(0,0,c.width,c.height);
-  ctx.save(); ctx.translate(-camX,-camY);
-
-  ctx.fillStyle="#0f1a3a";
-  ctx.fillRect(0,0,snap.map.w,snap.map.h);
-
-  // zona fechando
-  ctx.strokeStyle="rgba(255,0,0,.4)";
-  ctx.lineWidth=6;
-  ctx.strokeRect(snap.map.close,snap.map.close,
-    snap.map.w-snap.map.close*2,
-    snap.map.h-snap.map.close*2);
-
-  // porta
-  const d=snap.map.door;
-  ctx.fillStyle=d.open?"#22c55e":"#ef4444";
-  ctx.beginPath();ctx.arc(d.x,d.y,d.r,0,Math.PI*2);ctx.fill();
-
-  // vidas
-  snap.lifes.forEach(l=>{
-    ctx.fillStyle="#22c55e";
-    ctx.beginPath();ctx.arc(l.x,l.y,l.r,0,Math.PI*2);ctx.fill();
-  });
-
-  // balas
-  snap.bullets.forEach(b=>{
-    ctx.fillStyle=b.from==="e"?"#ff4d6d":"#ffd60a";
-    ctx.fillRect(b.x-3,b.y-3,6,6);
-  });
-
-  // inimigos
-  snap.enemies.forEach(e=>{
-    ctx.fillStyle="orange";
-    ctx.beginPath();ctx.arc(e.x,e.y,16,0,Math.PI*2);ctx.fill();
-  });
-
-  // players
-  for(const [id,p] of Object.entries(snap.players)){
-    ctx.fillStyle=p.cls==="tank"?"#ef4444":"#3b82f6";
-    ctx.beginPath();ctx.arc(p.x,p.y,18,0,Math.PI*2);ctx.fill();
-    if(id===myId){ctx.strokeStyle="#fff";ctx.lineWidth=4;ctx.stroke();}
-  }
-
+function drawChar(p){
+  ctx.save();
+  ctx.translate(p.x,p.y);
+  ctx.fillStyle=p.cls==="tank"?"#ef4444":"#3b82f6";
+  ctx.beginPath();
+  ctx.arc(0,0,20,0,Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle="#000";
+  ctx.fillRect(-8,-5,16,6);
   ctx.restore();
 }
+
+function loop(){
+  if(!state){requestAnimationFrame(loop);return;}
+  ctx.clearRect(0,0,c.width,c.height);
+  const me=state.players[id];
+  ctx.save();
+  ctx.translate(c.width/2-me.x,c.height/2-me.y);
+
+  Object.values(state.players).forEach(drawChar);
+
+  ctx.restore();
+  requestAnimationFrame(loop);
+}
+loop();
 </script>
 </body>
 </html>

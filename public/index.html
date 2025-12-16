@@ -1,34 +1,19 @@
 <!doctype html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{margin:0;background:#000;color:#fff;font-family:Arial;overflow:hidden}
+body{margin:0;background:#000;color:#fff;font-family:Arial}
 canvas{display:block}
-#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:10}
+#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7)}
 #box{background:#111;padding:16px;border-radius:12px;width:280px}
 input,button{width:100%;margin-top:10px;padding:12px;border-radius:8px;border:none}
 button{background:#ffc;color:#000;font-weight:bold}
-#hud{position:fixed;top:10px;left:10px;font-weight:bold;z-index:5}
+#hud{position:fixed;top:10px;left:10px;font-weight:bold}
 
-#joy{
-  position:fixed;left:20px;bottom:20px;
-  width:140px;height:140px;border-radius:50%;
-  background:rgba(255,255,255,.15);
-  border:2px solid rgba(255,255,255,.25);
-  z-index:20;touch-action:none;
-}
-#knob{
-  position:absolute;left:50%;top:50%;
-  width:60px;height:60px;margin:-30px;
-  border-radius:50%;background:#fff;
-}
-#fire{
-  position:fixed;right:20px;bottom:60px;
-  padding:18px 24px;background:#ffc;
-  color:#000;border-radius:12px;
-  font-weight:bold;z-index:20;
-}
+#joy{position:fixed;left:20px;bottom:20px;width:140px;height:140px;border-radius:50%;background:#333}
+#knob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px;border-radius:50%;background:#fff}
+#fire{position:fixed;right:20px;bottom:60px;padding:18px;background:#ffc;color:#000;border-radius:12px;font-weight:bold}
 </style>
 </head>
 <body>
@@ -42,27 +27,23 @@ button{background:#ffc;color:#000;font-weight:bold}
   </div>
 </div>
 
-<div id="hud">Conectando…</div>
+<div id="hud"></div>
 <canvas id="c"></canvas>
-
 <div id="joy"><div id="knob"></div></div>
 <div id="fire">ATIRAR</div>
 
 <script>
-/* ===== Canvas ===== */
 const c=document.getElementById("c"),ctx=c.getContext("2d");
-function resize(){c.width=innerWidth;c.height=innerHeight}
-addEventListener("resize",resize);resize();
+c.width=innerWidth;c.height=innerHeight;
 
-/* ===== WebSocket ===== */
 const ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
-let myId,state,aim={x:1,y:0},move={x:0,y:0},roomKey="solo";
+let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
 
 function join(){
   roomKey=document.getElementById("room").value||"solo";
   ws.send(JSON.stringify({
     t:"join",
-    name:document.getElementById("name").value||"Player",
+    name:document.getElementById("name").value,
     room:roomKey
   }));
   document.getElementById("menu").style.display="none";
@@ -70,85 +51,83 @@ function join(){
 
 ws.onmessage=e=>{
   const m=JSON.parse(e.data);
-  if(m.t==="you"){myId=m.id;document.getElementById("hud").textContent="Jogando";}
-  if(m.t==="state"){state=m.rooms[roomKey];}
+  if(m.t==="you"){myId=m.id;}
+  if(m.t==="state") state=m.rooms[roomKey];
 };
 
-/* ===== JOYSTICK REAL ===== */
+// joystick
 const joy=document.getElementById("joy");
 const knob=document.getElementById("knob");
-let center={x:0,y:0},drag=false;
-const MAX=50;
+let center={x:0,y:0},drag=false,MAX=50;
 
-joy.addEventListener("pointerdown",e=>{
+joy.onpointerdown=e=>{
   const r=joy.getBoundingClientRect();
   center.x=r.left+r.width/2;
   center.y=r.top+r.height/2;
   drag=true;
-  joy.setPointerCapture(e.pointerId);
-});
+};
 
-joy.addEventListener("pointermove",e=>{
+joy.onpointermove=e=>{
   if(!drag) return;
-  const dx=e.clientX-center.x;
-  const dy=e.clientY-center.y;
+  const dx=e.clientX-center.x,dy=e.clientY-center.y;
   const d=Math.hypot(dx,dy);
   const m=Math.min(d,MAX);
-  const nx=(dx/d||0)*m;
-  const ny=(dy/d||0)*m;
-
+  const nx=(dx/d||0)*m,ny=(dy/d||0)*m;
   knob.style.transform=`translate(${nx}px,${ny}px)`;
-  move.x=nx/MAX;
-  move.y=ny/MAX;
-
+  move.x=nx/MAX; move.y=ny/MAX;
   const l=Math.hypot(move.x,move.y)||1;
-  aim.x=move.x/l;
-  aim.y=move.y/l;
-
+  aim.x=move.x/l; aim.y=move.y/l;
   ws.send(JSON.stringify({t:"move",x:move.x,y:move.y}));
-});
+};
 
-joy.addEventListener("pointerup",()=>{
-  drag=false;
-  knob.style.transform="";
-  move.x=0;move.y=0;
+joy.onpointerup=()=>{
+  drag=false; knob.style.transform="";
+  move.x=move.y=0;
   ws.send(JSON.stringify({t:"move",x:0,y:0}));
-});
+};
 
-/* ===== ATIRAR ===== */
-document.getElementById("fire").addEventListener("pointerdown",()=>{
+// atirar
+document.getElementById("fire").onclick=()=>{
   ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
-});
+};
 
-/* ===== DRAW ===== */
+// draw
 function loop(){
   ctx.clearRect(0,0,c.width,c.height);
   if(!state||!myId){requestAnimationFrame(loop);return;}
 
   const me=state.players[myId];
-  ctx.save();
-  ctx.translate(c.width/2-me.x,c.height/2-me.y);
+  ctx.save();ctx.translate(c.width/2-me.x,c.height/2-me.y);
 
+  // players
   for(const p of Object.values(state.players)){
     ctx.fillStyle=p.id===myId?"#0f0":"#f00";
     ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
+
+    // HP bar
+    ctx.fillStyle="rgba(0,0,0,.5)";
+    ctx.fillRect(p.x-22,p.y-28,44,6);
+    ctx.fillStyle="#22c55e";
+    ctx.fillRect(p.x-22,p.y-28,44*(p.hp/p.max),6);
   }
 
+  // enemies
   state.enemies.forEach(e=>{
     ctx.fillStyle="#ff0";
     ctx.beginPath();ctx.arc(e.x,e.y,14,0,Math.PI*2);ctx.fill();
   });
 
+  // bullets
   state.bullets.forEach(b=>{
-    ctx.fillStyle="#fff";
+    ctx.fillStyle=b.from==="e"?"#ff4d6d":"#fff";
     ctx.fillRect(b.x-2,b.y-2,4,4);
   });
 
+  // door
   ctx.fillStyle=state.door.open?"#0f0":"#f00";
   ctx.fillRect(state.door.x-20,state.door.y-30,40,60);
 
   ctx.restore();
-
   document.getElementById("hud").textContent=
     `HP: ${Math.floor(me.hp)} | Kills: ${me.kills}`;
 

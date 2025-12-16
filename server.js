@@ -1,9 +1,10 @@
-const express = require("express");
+// server.js (inalterado)
+Const express = require("express");
 const http = require("http");
 const WebSocket = require("ws");
 
 const app = express();
-app.use(express.static("public"));
+app.use(express.static("public")); // Assumindo que o client.html está em 'public'
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 

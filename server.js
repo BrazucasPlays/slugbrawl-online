@@ -92,9 +92,11 @@ setInterval(()=>{
       r.lifes.push({x:rand(300,1500),y:rand(300,700)});
     }
 
+    // --- CORREÇÃO DE VELOCIDADE AQUI (3x -> 5x) ---
     for(const p of Object.values(r.players)){
-      p.x += p.ix*3;
-      p.y += p.iy*3;
+      p.x += p.ix * 5; // Velocidade aumentada
+      p.y += p.iy * 5; // Velocidade aumentada
+
       if(p.x<r.zone || p.y<r.zone || p.x>MAP.w-r.zone || p.y>MAP.h-r.zone){
         p.hp -= 0.5;
         if(p.hp<0) p.hp=0;

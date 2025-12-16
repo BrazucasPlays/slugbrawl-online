@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>SlugBrawl Online</title>
+
+<style>
+html,body{
+  margin:0; padding:0; overflow:hidden;
+  background:#0b0f1a; color:#fff;
+  font-family:Arial; touch-action:none;
+}
+canvas{display:block}
+
+/* UI */
+#ui{position:fixed;inset:0;pointer-events:none}
+.joy{
+  pointer-events:auto;
+  position:fixed;
+  bottom:20px;
+  width:140px;height:140px;
+  border-radius:50%;
+  background:rgba(255,255,255,.1);
+  border:2px solid rgba(255,255,255,.2)
+}
+#joyMove{left:20px}
+#joyShoot{right:20px}
+
+.knob{
+  width:60px;height:60px;
+  background:rgba(255,255,255,.85);
+  border-radius:50%;
+  position:absolute;
+  left:50%;top:50%;
+  margin:-30px;
+}
+.btn{
+  pointer-events:auto;
+  position:fixed;
+  right:35px;
+  bottom:60px;
+  width:80px;height:80px;
+  border-radius:50%;
+  background:rgba(255,80,80,.85);
+  font-weight:bold;
+  font-size:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+</style>
+</head>
+
+<body>
+<canvas id="game"></canvas>
+
+<div id="ui">
+  <div id="joyMove" class="joy"><div class="knob"></div></div>
+  <div id="joyShoot" class="btn">FIRE</div>
+</div>
+
+<script>
+/* ================= AUDIO ================= */
+const AC = new (window.AudioContext||webkitAudioContext)();
+function sfx(freq,dur=0.08){
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.frequency.value=freq;
+  o.connect(g); g.connect(AC.destination);
+  o.start();
+  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime+dur);
+  o.stop(AC.currentTime+dur);
+}
+
+/* ================= CANVAS ================= */
+const c = document.getElementById("game");
+const ctx = c.getContext("2d");
+function resize(){c.width=innerWidth;c.height=innerHeight}
+addEventListener("resize",resize); resize();
+
+/* ================= NETWORK ================= */
+const WS_URL=(location.protocol==="https:"?"wss://":"ws://")+location.host;
+let ws=null, myId=null;
+let snap={players:{},bullets:[],enemies:[],lifes:[],map:{w:2200,h:1400,close:0,door:{x:0,y:0,r:30}},result:null};
+
+function connect(){
+  AC.resume();
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>ws.send(JSON.stringify({t:"join",room:"sala1",name:"Player",cls:"soldier"}));
+  ws.onmessage=e=>{
+    const m=JSON.parse(e.data);
+    if(m.t==="you") myId=m.id;
+    if(m.t==="snapshot") snap=m;
+  };
+}
+connect();
+
+/* ================= INPUT ================= */
+let move={x:0,y:0}, firing=false;
+
+/* joystick mover */
+(function(){
+  const joy=document.getElementById("joyMove");
+  const knob=joy.firstChild;
+  let cx,cy;
+  joy.addEventListener("pointerdown",e=>{
+    const r=joy.getBoundingClientRect();
+    cx=r.left+r.width/2; cy=r.top+r.height/2;
+    joy.setPointerCapture(e.pointerId);
+  });
+  joy.addEventListener("pointermove",e=>{
+    const dx=e.clientX-cx, dy=e.clientY-cy;
+    const d=Math.hypot(dx,dy), m=Math.min(d,45);
+    const nx=dx/d*m||0, ny=dy/d*m||0;
+    knob.style.transform=`translate(${nx}px,${ny}px)`;
+    move.x=nx/45; move.y=ny/45;
+  });
+  joy.addEventListener("pointerup",()=>{
+    knob.style.transform="";
+    move.x=move.y=0;
+  });
+})();
+
+/* botão atirar */
+const fireBtn=document.getElementById("joyShoot");
+fireBtn.addEventListener("pointerdown",()=>firing=true);
+fireBtn.addEventListener("pointerup",()=>firing=false);
+
+/* PC fallback */
+const keys={};
+addEventListener("keydown",e=>keys[e.key]=1);
+addEventListener("keyup",e=>keys[e.key]=0);
+
+/* ================= LOOP ================= */
+let lastSend=0;
+let local={x:300,y:300,aimX:1,aimY:0};
+
+function loop(t){
+  const me=snap.players[myId];
+  if(me){
+    local.x=me.x; local.y=me.y;
+  }
+
+  /* movimento */
+  let mx=move.x,my=move.y;
+  if(keys.w)my=-1;if(keys.s)my=1;
+  if(keys.a)mx=-1;if(keys.d)mx=1;
+
+  local.x+=mx*4;
+  local.y+=my*4;
+
+  if(ws&&t-lastSend>50){
+    ws.send(JSON.stringify({t:"state",x:local.x,y:local.y,aimX:local.aimX,aimY:local.aimY}));
+    if(firing){
+      ws.send(JSON.stringify({t:"shoot",aimX:local.aimX,aimY:local.aimY}));
+      sfx(650);
+    }
+    lastSend=t;
+  }
+
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ================= DRAW ================= */
+function draw(){
+  ctx.clearRect(0,0,c.width,c.height);
+
+  for(const p of Object.values(snap.players)){
+    ctx.fillStyle=p.id===myId?"cyan":"lime";
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,18,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle="green";
+    ctx.fillRect(p.x-20,p.y-30,40*(p.hp/p.max),5);
+  }
+
+  snap.enemies.forEach(e=>{
+    ctx.fillStyle="orange";
+    ctx.beginPath();
+    ctx.arc(e.x,e.y,16,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  snap.bullets.forEach(b=>{
+    ctx.fillStyle=b.from==="e"?"red":"yellow";
+    ctx.fillRect(b.x,b.y,4,4);
+  });
+
+  snap.lifes.forEach(l=>{
+    ctx.fillStyle="lime";
+    ctx.beginPath();
+    ctx.arc(l.x,l.y,10,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  if(snap.result){
+    ctx.fillStyle="white";
+    ctx.font="48px Arial";
+    ctx.fillText(
+      snap.result==="WIN"?"VITÓRIA":"GAME OVER",
+      c.width/2-120,c.height/2
+    );
+    sfx(snap.result==="WIN"?900:80,0.3);
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>SlugBrawl Online</title>
+<style>
+  html,body{height:100%;margin:0;overflow:hidden;background:#081022;font-family:system-ui;color:#eaf2ff;touch-action:none}
+  canvas{display:block;width:100vw;height:100vh}
+  .menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}
+  .card{width:min(560px,92vw);background:rgba(0,0,0,.30);border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:16px}
+  input,select{width:100%;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.18);color:#eaf2ff;font-weight:800;outline:none}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+  button{cursor:pointer;border:0;padding:12px 14px;border-radius:16px;font-weight:1000;letter-spacing:.6px;text-transform:uppercase}
+  .primary{background:linear-gradient(180deg,#ffd54a,#ffb703);color:#14213d}
+  .ghost{background:rgba(0,0,0,.20);color:#eaf2ff;border:1px solid rgba(255,255,255,.14)}
+  .top{position:fixed;left:12px;right:12px;top:12px;display:flex;justify-content:space-between;gap:10px;pointer-events:none}
+  .box{pointer-events:none;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:10px 12px;backdrop-filter:blur(6px)}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.18);font-weight:900}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .dot.net{background:linear-gradient(180deg,#38e1ff,#2e9bff)}
+  .dot.hp{background:linear-gradient(180deg,#35e38a,#0ea35a)}
+  .touch{position:fixed;inset:0;pointer-events:none;display:none}
+  .stick{pointer-events:auto;position:fixed;bottom:22px;width:132px;height:132px;border-radius:50%;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(6px)}
+  .stick.left{left:22px}.stick.right{right:22px}
+  .knob{width:52px;height:52px;border-radius:50%;position:absolute;left:40px;top:40px;background:rgba(56,225,255,.85);border:1px solid rgba(255,255,255,.22)}
+  .stick.right .knob{background:rgba(255,77,109,.88)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="top">
+  <div class="box">
+    <div style="font-weight:1000;letter-spacing:.6px;text-transform:uppercase">SlugBrawl Online</div>
+    <div id="sys" style="margin-top:4px;font-size:12px;color:rgba(234,242,255,.75);font-weight:800">Entre na sala</div>
+  </div>
+  <div class="box" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+    <div class="pill"><span class="dot net"></span><span id="net">OFF</span></div>
+    <div class="pill"><span class="dot hp"></span>HP <span id="hp">—</span></div>
+  </div>
+</div>
+
+<div class="touch" id="touchUI">
+  <div class="stick left" id="stickL"><div class="knob" id="knobL"></div></div>
+  <div class="stick right" id="stickR"><div class="knob" id="knobR"></div></div>
+</div>
+
+<div class="menu" id="menu">
+  <div class="card">
+    <div style="font-weight:1000;letter-spacing:.6px;text-transform:uppercase">Entrar</div>
+    <div style="margin-top:6px;font-size:12px;color:rgba(234,242,255,.75);font-weight:800">
+      Você e seu amigo usam o <b>mesmo ROOM</b>.
+    </div>
+    <div style="margin-top:12px;display:grid;gap:10px">
+      <input id="name" placeholder="Seu nome" maxlength="14"/>
+      <input id="room" placeholder="Room (ex: sala1)" maxlength="20"/>
+      <select id="cls">
+        <option value="soldier">Soldado (rápido)</option>
+        <option value="tank">Tank (mais vida)</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="primary" id="join">Jogar</button>
+      <button class="ghost" id="reset">Reset</button>
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:rgba(234,242,255,.75);font-weight:800;line-height:1.35">
+      <b>PC:</b> WASD move • Mouse mira • Clique/Space atira<br/>
+      <b>Mobile:</b> stick esquerdo move • stick direito mira/atira
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---- tiny audio (no files)
+  const AC = new (window.AudioContext||window.webkitAudioContext)();
+  function sfx(freq, dur=0.06){
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.frequency.value=freq; o.connect(g); g.connect(AC.destination);
+    o.start(); g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime+dur);
+    o.stop(AC.currentTime+dur);
+  }
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d", { alpha:false });
+  const menu = document.getElementById("menu");
+  const touchUI = document.getElementById("touchUI");
+  const sys = document.getElementById("sys");
+  const hpTxt = document.getElementById("hp");
+  const netTxt = document.getElementById("net");
+
+  const nameIn = document.getElementById("name");
+  const roomIn = document.getElementById("room");
+  const clsIn  = document.getElementById("cls");
+
+  function isTouchDevice(){
+    return matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+  }
+  function resize(){
+    const dpr = Math.max(1, Math.min(2, devicePixelRatio || 1));
+    canvas.width = Math.floor(innerWidth * dpr);
+    canvas.height = Math.floor(innerHeight * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  addEventListener("resize", resize, {passive:true});
+  resize();
+
+  // ---- joystick
+  const joy = { moveX:0, moveY:0, aimX:0, aimY:-1, firing:false };
+  function setupStick(stickEl, knobEl, onMove){
+    let activeId=null; let base={x:0,y:0};
+    stickEl.addEventListener("pointerdown",(e)=>{
+      activeId=e.pointerId; stickEl.setPointerCapture(activeId);
+      const r=stickEl.getBoundingClientRect();
+      base.x=r.left+r.width/2; base.y=r.top+r.height/2;
+      onMove(0,0,true);
+    });
+    stickEl.addEventListener("pointermove",(e)=>{
+      if(activeId!==e.pointerId) return;
+      const dx=e.clientX-base.x, dy=e.clientY-base.y;
+      const max=44; const len=Math.hypot(dx,dy);
+      const t = len>max ? max/len : 1;
+      const ndx=dx*t, ndy=dy*t;
+      knobEl.style.left=(40+ndx)+"px";
+      knobEl.style.top =(40+ndy)+"px";
+      onMove(ndx/max, ndy/max, true);
+    });
+    const end=(e)=>{
+      if(activeId!==e.pointerId) return;
+      onMove(0,0,false); activeId=null;
+      knobEl.style.left="40px"; knobEl.style.top="40px";
+    };
+    stickEl.addEventListener("pointerup",end);
+    stickEl.addEventListener("pointercancel",end);
+  }
+  setupStick(document.getElementById("stickL"), document.getElementById("knobL"), (x,y)=>{ joy.moveX=x; joy.moveY=y; });
+  setupStick(document.getElementById("stickR"), document.getElementById("knobR"), (x,y)=>{
+    const len=Math.hypot(x,y);
+    if(len>0.18){ joy.aimX=x/len; joy.aimY=y/len; joy.firing=true; }
+    else joy.firing=false;
+  });
+
+  // ---- net
+  const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+  let ws=null, youId=null;
+
+  // world snapshot from server
+  let snap = {
+    map: { w:2200, h:1400, close:0, door:{x:0,y:0,r:36} },
+    players:{}, enemies:[], bullets:[], lifes:[],
+    result:null, msg:""
+  };
+
+  // local prediction
+  const local = { x: 300, y: 300, aimX: 1, aimY: 0, fireCd: 0, cls:"soldier", maxHp:110 };
+
+  function connect(){
+    AC.resume();
+    ws = new WebSocket(WS_URL);
+    netTxt.textContent = "CON...";
+    ws.onopen = () => {
+      netTxt.textContent = "ON";
+      sys.textContent = "Conectado! Entrando...";
+      ws.send(JSON.stringify({
+        t:"join",
+        room: (roomIn.value || "sala1").slice(0,20),
+        name: (nameIn.value || "player").slice(0,14),
+        cls: clsIn.value
+      }));
+    };
+    ws.onclose = () => { netTxt.textContent="OFF"; sys.textContent="Desconectou"; youId=null; };
+    ws.onerror = () => { netTxt.textContent="OFF"; sys.textContent="Erro WebSocket"; };
+    ws.onmessage = (e) => {
+      let msg; try{ msg=JSON.parse(e.data); }catch{ return; }
+      if (msg.t==="you"){
+        youId = msg.id;
+        menu.style.display="none";
+        touchUI.style.display = isTouchDevice() ? "block" : "none";
+        sys.textContent = `Sala: ${msg.roomId || ""} • Você: ${youId}`;
+        return;
+      }
+      if (msg.t==="snapshot"){
+        snap = msg;
+        const me = snap.players?.[youId];
+        if (me){
+          hpTxt.textContent = `${Math.ceil(me.hp)}/${me.max}`;
+          local.maxHp = me.max;
+          local.cls = me.cls;
+          // gently correct position
+          local.x = me.x; local.y = me.y;
+          local.aimX = me.aimX; local.aimY = me.aimY;
+        }
+        if (snap.msg) sys.textContent = snap.msg;
+        if (snap.result === "WIN") sfx(900,0.25);
+        if (snap.result === "LOSE") sfx(90,0.25);
+      }
+    };
+  }
+
+  function sendState(){
+    if (!ws || ws.readyState!==1 || !youId) return;
+    ws.send(JSON.stringify({ t:"state", x:local.x, y:local.y, aimX:local.aimX, aimY:local.aimY }));
+  }
+  function sendShoot(){
+    if (!ws || ws.readyState!==1 || !youId) return;
+    ws.send(JSON.stringify({ t:"shoot", aimX:local.aimX, aimY:local.aimY }));
+    sfx(620,0.05);
+  }
+  function sendReset(){
+    if (!ws || ws.readyState!==1 || !youId) return;
+    ws.send(JSON.stringify({ t:"reset" }));
+  }
+
+  document.getElementById("join").onclick = connect;
+  document.getElementById("reset").onclick = sendReset;
+
+  // PC inputs
+  const keys = new Set();
+  addEventListener("keydown", (e)=>keys.add(e.key.toLowerCase()));
+  addEventListener("keyup", (e)=>keys.delete(e.key.toLowerCase()));
+
+  let mouse = {x:0,y:0,down:false};
+  addEventListener("pointermove", (e)=>{ mouse.x=e.clientX; mouse.y=e.clientY; }, {passive:true});
+  addEventListener("pointerdown", ()=>mouse.down=true);
+  addEventListener("pointerup", ()=>mouse.down=false);
+
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  let lastSent = 0, last = performance.now();
+
+  function loop(now){
+    const dt = Math.min(33, now-last); last=now;
+
+    // draw menu background if not started
+    if (menu.style.display !== "none"){
+      ctx.clearRect(0,0,innerWidth,innerHeight);
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    // movement
+    let mx=0,my=0, ax=local.aimX, ay=local.aimY, wantShoot=false;
+
+    if (touchUI.style.display !== "none"){
+      mx = joy.moveX; my = joy.moveY;
+      const l = Math.hypot(mx,my); if (l>1){ mx/=l; my/=l; }
+      ax = joy.aimX; ay = joy.aimY;
+      wantShoot = joy.firing;
+    } else {
+      const up = keys.has("w")||keys.has("arrowup");
+      const dn = keys.has("s")||keys.has("arrowdown");
+      const lf = keys.has("a")||keys.has("arrowleft");
+      const rt = keys.has("d")||keys.has("arrowright");
+      mx += (rt?1:0)-(lf?1:0);
+      my += (dn?1:0)-(up?1:0);
+      const l = Math.hypot(mx,my); if (l>0){ mx/=l; my/=l; }
+
+      // aim with mouse toward world center camera-less (simple)
+      const wx = mouse.x + (local.x - innerWidth/2);
+      const wy = mouse.y + (local.y - innerHeight/2);
+      const dx = wx - local.x, dy = wy - local.y;
+      const ll = Math.hypot(dx,dy);
+      if (ll>0.001){ ax = dx/ll; ay = dy/ll; }
+      wantShoot = mouse.down || keys.has(" ");
+    }
+
+    local.aimX = ax; local.aimY = ay;
+
+    const speed = (local.cls === "tank") ? 2.35 : 2.85;
+    local.x = clamp(local.x + mx*speed*3.2, 18, snap.map.w - 18);
+    local.y = clamp(local.y + my*speed*3.2, 18, snap.map.h - 18);
+
+    local.fireCd = Math.max(0, local.fireCd - dt);
+    if (wantShoot && local.fireCd === 0 && snap.result == null){
+      sendShoot();
+      local.fireCd = (local.cls === "tank") ? 160 : 120;
+    }
+
+    if (now - lastSent > 50){
+      sendState();
+      lastSent = now;
+    }
+
+    render();
+
+    requestAnimationFrame(loop);
+  }
+
+  function render(){
+    // camera follows local
+    const camX = clamp(local.x - innerWidth/2, 0, snap.map.w - innerWidth);
+    const camY = clamp(local.y - innerHeight/2, 0, snap.map.h - innerHeight);
+
+    ctx.clearRect(0,0,innerWidth,innerHeight);
+    ctx.save();
+    ctx.translate(-camX, -camY);
+
+    // ground
+    ctx.fillStyle = "#0f1a3a";
+    ctx.fillRect(0,0,snap.map.w,snap.map.h);
+
+    // closing border
+    const close = snap.map.close || 0;
+    ctx.strokeStyle = "rgba(255,40,60,.9)";
+    ctx.lineWidth = 6;
+    ctx.strokeRect(close, close, snap.map.w - close*2, snap.map.h - close*2);
+
+    // door
+    ctx.fillStyle = "rgba(255,213,74,.95)";
+    ctx.beginPath();
+    ctx.arc(snap.map.door.x, snap.map.door.y, snap.map.door.r, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(20,33,61,.9)";
+    ctx.font = "16px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText("SAÍDA", snap.map.door.x, snap.map.door.y+6);
+
+    // lifes
+    for (const l of (snap.lifes||[])){
+      ctx.fillStyle = "rgba(53,227,138,.95)";
+      ctx.beginPath(); ctx.arc(l.x,l.y,l.r||14,0,Math.PI*2); ctx.fill();
+    }
+
+    // bullets
+    for (const b of (snap.bullets||[])){
+      ctx.fillStyle = b.from==="e" ? "rgba(255,77,109,.95)" : "rgba(255,213,74,.95)";
+      ctx.fillRect(b.x-2,b.y-2,4,4);
+    }
+
+    // enemies
+    for (const e of (snap.enemies||[])){
+      ctx.fillStyle = "rgba(255,140,40,.95)";
+      ctx.beginPath(); ctx.arc(e.x,e.y,16,0,Math.PI*2); ctx.fill();
+    }
+
+    // players
+    const players = snap.players || {};
+    for (const [pid, p] of Object.entries(players)){
+      const isYou = pid === youId;
+      ctx.fillStyle = isYou ? "rgba(56,225,255,.95)" : "rgba(120,255,160,.95)";
+      ctx.beginPath(); ctx.arc(p.x,p.y,18,0,Math.PI*2); ctx.fill();
+
+      // aim line
+      ctx.strokeStyle = "rgba(255,255,255,.55)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(p.x,p.y);
+      ctx.lineTo(p.x + (p.aimX||0)*42, p.y + (p.aimY||-1)*42);
+      ctx.stroke();
+
+      // hp bar
+      ctx.fillStyle = "rgba(0,0,0,.30)";
+      ctx.fillRect(p.x-24, p.y-40, 48, 6);
+      ctx.fillStyle = "rgba(53,227,138,.9)";
+      ctx.fillRect(p.x-24, p.y-40, 48*(Math.max(0,p.hp)/p.max), 6);
+
+      // name
+      ctx.fillStyle = "rgba(234,242,255,.9)";
+      ctx.font = "12px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(p.name || pid, p.x, p.y+34);
+    }
+
+    // end state overlay
+    if (snap.result){
+      ctx.fillStyle = "rgba(0,0,0,.45)";
+      ctx.fillRect(camX,camY,innerWidth,innerHeight);
+      ctx.fillStyle = "#fff";
+      ctx.font = "54px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(snap.result==="WIN"?"VITÓRIA!":"GAME OVER", camX+innerWidth/2, camY+innerHeight/2);
+      ctx.font = "16px system-ui";
+      ctx.fillText("Clique Reset para tentar de novo", camX+innerWidth/2, camY+innerHeight/2 + 42);
+    }
+
+    ctx.restore();
+  }
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

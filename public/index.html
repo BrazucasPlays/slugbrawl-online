@@ -1,19 +1,26 @@
 <!doctype html>
 <html lang="pt-br">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <title>SlugBrawl</title>
 <style>
-body{margin:0;background:#071022;color:#fff;font-family:Arial;overflow:hidden}
+html,body{margin:0;overflow:hidden;background:#071022;color:#fff;font-family:Arial;touch-action:none}
+canvas{display:block}
 #menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:10}
-#box{width:90%;max-width:360px;background:#111827;padding:16px;border-radius:14px}
+#box{width:92%;max-width:360px;background:#111827;padding:16px;border-radius:14px}
 input,select,button{width:100%;margin-top:10px;padding:12px;border-radius:10px;border:none;font-weight:bold}
 button{background:#facc15;color:#000}
-canvas{display:block}
-#joy{position:fixed;left:20px;bottom:20px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.15)}
-#fire{position:fixed;right:20px;bottom:60px;width:100px;height:60px;border-radius:16px;background:#facc15;color:#000;display:flex;align-items:center;justify-content:center;font-weight:bold}
-#hud{position:fixed;top:10px;left:10px;font-weight:bold}
+#hud{position:fixed;top:10px;left:10px;font-weight:bold;z-index:5}
+
+.joy{position:fixed;left:20px;bottom:20px;width:140px;height:140px;border-radius:50%;
+background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.2);z-index:20}
+.knob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px;border-radius:50%;
+background:#fff;opacity:.9}
+
+#fire{position:fixed;right:20px;bottom:60px;width:110px;height:64px;border-radius:18px;
+background:#facc15;color:#000;display:flex;align-items:center;justify-content:center;
+font-weight:bold;z-index:20}
 </style>
 </head>
 <body>
@@ -33,19 +40,49 @@ canvas{display:block}
 
 <div id="hud">Clique ENTRAR</div>
 <canvas id="c"></canvas>
-<div id="joy"></div>
+
+<div class="joy" id="joy">
+  <div class="knob" id="knob"></div>
+</div>
 <div id="fire">ATIRAR</div>
 
 <script>
+/* ================= CANVAS ================= */
 const c=document.getElementById("c"),ctx=c.getContext("2d");
 function resize(){c.width=innerWidth;c.height=innerHeight}
 addEventListener("resize",resize);resize();
 
+/* ================= SPRITES (CANVAS) ================= */
+function makePlayer(color){
+  const s=document.createElement("canvas"); s.width=64; s.height=64;
+  const g=s.getContext("2d");
+  g.fillStyle=color;
+  g.beginPath(); g.arc(32,22,12,0,Math.PI*2); g.fill();
+  g.fillRect(22,34,20,20);
+  g.fillStyle="#000"; g.fillRect(27,18,3,3); g.fillRect(34,18,3,3);
+  return s;
+}
+function makeEnemy(){
+  const s=document.createElement("canvas"); s.width=64; s.height=64;
+  const g=s.getContext("2d");
+  g.fillStyle="#f59e0b";
+  g.beginPath(); g.arc(32,22,12,0,Math.PI*2); g.fill();
+  g.fillRect(22,34,20,20);
+  g.fillStyle="#000"; g.fillRect(28,18,4,4); g.fillRect(34,18,4,4);
+  return s;
+}
+const SPR={
+  soldier:makePlayer("#3b82f6"),
+  tank:makePlayer("#ef4444"),
+  enemy:makeEnemy()
+};
+
+/* ================= NETWORK ================= */
 const WS_URL=(location.protocol==="https:"?"wss://":"ws://")+location.hostname;
-let ws,myId,snap,move={x:0,y:0};
+let ws,myId,snap;
 
 window.join=function(){
-  document.getElementById("hud").textContent="Conectando…";
+  document.getElementById("hud").textContent="Conectando...";
   ws=new WebSocket(WS_URL);
   ws.onopen=()=>{
     ws.send(JSON.stringify({
@@ -66,35 +103,74 @@ window.join=function(){
   };
 };
 
+/* ================= JOYSTICK CORRETO ================= */
 const joy=document.getElementById("joy");
+const knob=document.getElementById("knob");
+let move={x:0,y:0},aim={x:1,y:0};
+let center={x:0,y:0},drag=false;
+
+joy.onpointerdown=e=>{
+  const r=joy.getBoundingClientRect();
+  center.x=r.left+r.width/2;
+  center.y=r.top+r.height/2;
+  drag=true;
+};
 joy.onpointermove=e=>{
-  if(!e.buttons) return;
-  move.x=e.movementX/30;
-  move.y=e.movementY/30;
+  if(!drag) return;
+  const dx=e.clientX-center.x, dy=e.clientY-center.y;
+  const dist=Math.hypot(dx,dy);
+  const max=50;
+  const nx=(dx/dist||0)*Math.min(dist,max);
+  const ny=(dy/dist||0)*Math.min(dist,max);
+  knob.style.transform=`translate(${nx}px,${ny}px)`;
+  move.x=nx/max; move.y=ny/max;
+  if(Math.abs(move.x)+Math.abs(move.y)>0.1){
+    const l=Math.hypot(move.x,move.y);
+    aim.x=move.x/l; aim.y=move.y/l;
+  }
   if(ws&&ws.readyState===1){
-    ws.send(JSON.stringify({t:"input",ix:move.x,iy:move.y,aimX:move.x,aimY:move.y}));
+    ws.send(JSON.stringify({t:"input",ix:move.x,iy:move.y,aimX:aim.x,aimY:aim.y}));
   }
 };
+joy.onpointerup=()=>{
+  drag=false; move.x=move.y=0;
+  knob.style.transform="";
+};
 
+/* ================= ATIRAR ================= */
 document.getElementById("fire").onpointerdown=()=>{
   if(ws&&ws.readyState===1) ws.send(JSON.stringify({t:"shoot"}));
 };
 
+/* ================= DRAW ================= */
 function loop(){
-  if(!snap||!myId){requestAnimationFrame(loop);return;}
   ctx.clearRect(0,0,c.width,c.height);
+  if(!snap||!myId){requestAnimationFrame(loop);return;}
+
+  const me=snap.players[myId];
+  const camX=me.x-c.width/2, camY=me.y-c.height/2;
+  ctx.save(); ctx.translate(-camX,-camY);
+
   for(const p of Object.values(snap.players)){
-    ctx.fillStyle=p.id===myId?"#22c55e":"#ef4444";
-    ctx.beginPath();ctx.arc(p.x,p.y,18,0,Math.PI*2);ctx.fill();
+    const img=p.cls==="tank"?SPR.tank:SPR.soldier;
+    ctx.drawImage(img,p.x-32,p.y-32,64,64);
+    if(p.id===myId){
+      ctx.strokeStyle="#fff"; ctx.lineWidth=4;
+      ctx.beginPath();
+      ctx.moveTo(p.x+aim.x*18,p.y+aim.y*18);
+      ctx.lineTo(p.x+aim.x*42,p.y+aim.y*42);
+      ctx.stroke();
+    }
   }
   for(const e of snap.enemies){
-    ctx.fillStyle="#f59e0b";
-    ctx.beginPath();ctx.arc(e.x,e.y,16,0,Math.PI*2);ctx.fill();
+    ctx.drawImage(SPR.enemy,e.x-32,e.y-32,64,64);
   }
   for(const b of snap.bullets){
     ctx.fillStyle="#ffd60a";
     ctx.fillRect(b.x-3,b.y-3,6,6);
   }
+
+  ctx.restore();
   requestAnimationFrame(loop);
 }
 loop();

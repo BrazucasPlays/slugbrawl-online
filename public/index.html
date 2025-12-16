@@ -25,7 +25,10 @@ button{background:#facc15;color:#000}
     <h2>SlugBrawl</h2>
     <input id="name" placeholder="Seu nome">
     <input id="room" placeholder="Sala (ex: sala1)">
-    <select id="cls"><option value="soldier">Soldado</option><option value="tank">Tank</option></select>
+    <select id="cls">
+      <option value="soldier">Soldado</option>
+      <option value="tank">Tank</option>
+    </select>
     <button onclick="join()">ENTRAR</button>
   </div>
 </div>
@@ -40,6 +43,7 @@ button{background:#facc15;color:#000}
 <script>
 const c=document.getElementById("c"),ctx=c.getContext("2d");
 function rs(){c.width=innerWidth;c.height=innerHeight} addEventListener("resize",rs); rs();
+
 const AC=new (window.AudioContext||webkitAudioContext)();
 const sfx=f=>{const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=f;o.connect(g);g.connect(AC.destination);o.start();g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+.1);o.stop(AC.currentTime+.1)}
 
@@ -53,7 +57,9 @@ function join(){
   ws.onmessage=e=>{
     const m=JSON.parse(e.data);
     if(m.t==="you"){myId=m.id;menu.style.display="none";}
-    if(m.t==="snapshot"){snap=m; hud.textContent="Modo: "+(Object.keys(snap.players).length>1?"Online":"Solo");
+    if(m.t==="snapshot"){
+      snap=m;
+      hud.textContent="Modo: "+(Object.keys(snap.players).length>1?"Online":"Solo");
       if(snap.result){
         end.style.display="flex";
         endText.textContent = snap.result.win ? (snap.result.win===myId?"VITÓRIA!":"DERROTA!") : "DERROTA!";
@@ -61,7 +67,6 @@ function join(){
     }
   };
 }
-
 function restart(){ ws.send(JSON.stringify({t:"reset"})); end.style.display="none"; }
 
 (()=>{
@@ -91,17 +96,42 @@ function loop(t){
 requestAnimationFrame(loop);
 
 function draw(){
-  const me=snap.players[myId]; const camX=me.x-c.width/2, camY=me.y-c.height/2;
-  ctx.clearRect(0,0,c.width,c.height); ctx.save(); ctx.translate(-camX,-camY);
-  ctx.fillStyle="#0f1a3a"; ctx.fillRect(0,0,snap.map.w,snap.map.h);
+  const me=snap.players[myId];
+  const camX=me.x-c.width/2, camY=me.y-c.height/2;
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.save(); ctx.translate(-camX,-camY);
 
-  snap.bullets.forEach(b=>{ ctx.fillStyle=b.from==="e"?"#ff4d6d":"#ffd60a"; ctx.fillRect(b.x-3,b.y-3,6,6); });
-  snap.enemies.forEach(e=>{ ctx.fillStyle="orange"; ctx.beginPath();ctx.arc(e.x,e.y,16,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle="red"; ctx.fillRect(e.x-20,e.y-28,40*(e.hp/70),5); });
+  // mapa
+  ctx.fillStyle="#0f1a3a";
+  ctx.fillRect(0,0,snap.map.w,snap.map.h);
+
+  // balas
+  snap.bullets.forEach(b=>{
+    ctx.fillStyle=b.from==="e"?"#ff4d6d":"#ffd60a";
+    ctx.fillRect(b.x-3,b.y-3,6,6);
+  });
+
+  // inimigos
+  snap.enemies.forEach(e=>{
+    ctx.fillStyle="orange";
+    ctx.beginPath();ctx.arc(e.x,e.y,16,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="red";
+    ctx.fillRect(e.x-20,e.y-28,40*(e.hp/70),5);
+  });
+
+  // players (cor por classe)
   for(const [id,p] of Object.entries(snap.players)){
-    ctx.fillStyle=id===myId?"cyan":"lime"; ctx.beginPath();ctx.arc(p.x,p.y,18,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle="green"; ctx.fillRect(p.x-20,p.y-30,40*(p.hp/p.max),5);
+    let color = (p.cls==="tank") ? "#ef4444" : "#3b82f6";
+    ctx.fillStyle=color;
+    ctx.beginPath();ctx.arc(p.x,p.y,18,0,Math.PI*2);ctx.fill();
+
+    if(id===myId){
+      ctx.strokeStyle="#ffffff"; ctx.lineWidth=4; ctx.stroke();
+    }
+    ctx.fillStyle="green";
+    ctx.fillRect(p.x-20,p.y-30,40*(p.hp/p.max),5);
   }
+
   ctx.restore();
 }
 </script>

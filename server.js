@@ -5,138 +5,90 @@ const path = require("path");
 
 const app = express();
 app.use(express.static(path.join(__dirname, "public")));
-app.get("/", (_, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+app.get("/", (_, res) =>
+  res.sendFile(path.join(__dirname, "public", "index.html"))
+);
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-/* ===== CONFIG ===== */
 const MAP = { w: 2200, h: 1400 };
 const TICK = 50;
 const ROOMS = new Map();
 
-/* ===== HELPERS ===== */
 const rand = (a, b) => a + Math.random() * (b - a);
-const rid = () => Math.random().toString(36).slice(2, 8);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const d2 = (ax, ay, bx, by) => {
-  const dx = ax - bx, dy = ay - by;
-  return dx * dx + dy * dy;
-};
+const rid = () => Math.random().toString(36).slice(2, 8);
+const d2 = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
 
-/* ===== ROOM ===== */
-function newDoor() {
+function newRoom() {
   return {
-    x: rand(300, MAP.w - 300),
-    y: rand(300, MAP.h - 300),
-    r: 46,
-    open: false
+    players: {},
+    bullets: [],
+    enemies: [],
+    lifes: [],
+    close: 0,
+    door: {
+      x: rand(300, MAP.w - 300),
+      y: rand(300, MAP.h - 300),
+      r: 46,
+      open: false
+    },
+    lastEnemy: 0,
+    lastLife: 0,
+    start: Date.now(),
+    result: null
   };
 }
 
-function roomGet(id) {
-  if (!ROOMS.has(id)) {
-    ROOMS.set(id, {
-      players: {},
-      clients: new Map(),
-      bullets: [],
-      enemies: [],
-      lifes: [],
-      close: 0,
-      startedAt: Date.now(),
-      lastEnemyAt: 0,
-      lastLifeAt: 0,
-      door: newDoor(),
-      result: null
-    });
-  }
-  return ROOMS.get(id);
-}
-
-function broadcast(roomId, data) {
-  const r = ROOMS.get(roomId);
-  if (!r) return;
-  const msg = JSON.stringify(data);
-  for (const ws of r.clients.keys()) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
-  }
-}
-
-/* ===== SPAWNS ===== */
-function spawnEnemy(r) {
-  r.enemies.push({
-    x: rand(200, MAP.w - 200),
-    y: rand(200, MAP.h - 200),
-    hp: 70,
-    cd: 0
-  });
-}
-
-function spawnLife(r) {
-  r.lifes.push({
-    x: rand(220, MAP.w - 220),
-    y: rand(220, MAP.h - 220),
-    r: 14
-  });
-}
-
-/* ===== GAME LOOP ===== */
-function tickRoom(roomId, r) {
+function tick(room) {
   const now = Date.now();
 
-  /* FECHAR MAPA */
-  if (now - r.startedAt > 3000) {
-    r.close = Math.min(560, r.close + 0.45);
+  if (now - room.start > 3000)
+    room.close = Math.min(560, room.close + 0.4);
+
+  if (now - room.lastEnemy > 1400) {
+    room.enemies.push({
+      x: rand(200, MAP.w - 200),
+      y: rand(200, MAP.h - 200),
+      hp: 70,
+      cd: 0
+    });
+    room.lastEnemy = now;
   }
 
-  /* SPAWNS */
-  if (now - r.lastEnemyAt > 1300) {
-    spawnEnemy(r);
-    r.lastEnemyAt = now;
+  if (now - room.lastLife > 4000) {
+    room.lifes.push({
+      x: rand(220, MAP.w - 220),
+      y: rand(220, MAP.h - 220)
+    });
+    room.lastLife = now;
   }
 
-  if (now - r.lastLifeAt > 3500) {
-    spawnLife(r);
-    r.lastLifeAt = now;
-  }
+  Object.values(room.players).forEach(p => {
+    if (!p.alive) return;
 
-  /* PLAYER */
-  for (const p of Object.values(r.players)) {
-    if (!p.alive) continue;
-    const speed = p.cls === "tank" ? 2.2 : 2.8;
+    const sp = p.cls === "tank" ? 2.1 : 2.7;
+    p.x = clamp(p.x + p.ix * sp, 0, MAP.w);
+    p.y = clamp(p.y + p.iy * sp, 0, MAP.h);
 
-    let ix = clamp(p.ix || 0, -1, 1);
-    let iy = clamp(p.iy || 0, -1, 1);
-    const len = Math.hypot(ix, iy);
-    if (len > 1) { ix /= len; iy /= len; }
+    const L = room.close;
+    const R = MAP.w - room.close;
+    const T = room.close;
+    const B = MAP.h - room.close;
 
-    p.x = clamp(p.x + ix * speed, 18, MAP.w - 18);
-    p.y = clamp(p.y + iy * speed, 18, MAP.h - 18);
-
-    /* DANO FORA DA ZONA */
-    const L = r.close, T = r.close;
-    const R = MAP.w - r.close, B = MAP.h - r.close;
-    if (p.x < L || p.y < T || p.x > R || p.y > B) {
-      p.hp -= 0.4;
-      if (p.hp <= 0) {
-        p.hp = 0;
-        p.alive = false;
-      }
-    }
-  }
-
-  /* INIMIGOS */
-  for (const e of r.enemies) {
-    const alive = Object.values(r.players).filter(p => p.alive);
-    if (!alive.length) break;
-
-    let t = alive[0];
-    let best = d2(e.x, e.y, t.x, t.y);
-    for (const p of alive) {
-      const dd = d2(e.x, e.y, p.x, p.y);
-      if (dd < best) { best = dd; t = p; }
+    if (p.x < L || p.x > R || p.y < T || p.y > B) {
+      p.hp -= 0.5;
+      if (p.hp <= 0) p.alive = false;
     }
 
+    if (p.kills >= 5) room.door.open = true;
+  });
+
+  room.enemies.forEach(e => {
+    const alive = Object.values(room.players).filter(p => p.alive);
+    if (!alive.length) return;
+    const t = alive[0];
     const dx = t.x - e.x;
     const dy = t.y - e.y;
     const d = Math.hypot(dx, dy) || 1;
@@ -144,20 +96,12 @@ function tickRoom(roomId, r) {
     e.x += (dx / d) * 1.3;
     e.y += (dy / d) * 1.3;
 
-    /* CONTATO */
-    if (d < 34) {
-      t.hp -= 0.4;
-      if (t.hp <= 0) {
-        t.hp = 0;
-        t.alive = false;
-      }
-    }
+    if (d < 40) t.hp -= 0.4;
 
-    /* TIRO SÓ PERTO */
     e.cd = Math.max(0, e.cd - 1);
     if (d < 420 && e.cd === 0) {
       e.cd = 35;
-      r.bullets.push({
+      room.bullets.push({
         x: e.x,
         y: e.y,
         vx: (dx / d) * 7,
@@ -166,164 +110,60 @@ function tickRoom(roomId, r) {
         life: 80
       });
     }
-  }
+  });
 
-  /* BALAS */
-  for (let i = r.bullets.length - 1; i >= 0; i--) {
-    const b = r.bullets[i];
+  room.bullets = room.bullets.filter(b => {
     b.x += b.vx;
     b.y += b.vy;
     b.life--;
-
-    let dead = b.life <= 0;
-
-    if (!dead && b.from === "e") {
-      for (const p of Object.values(r.players)) {
-        if (!p.alive) continue;
-        if (d2(b.x, b.y, p.x, p.y) < 20 * 20) {
-          p.hp -= 10;
-          if (p.hp <= 0) { p.hp = 0; p.alive = false; }
-          dead = true;
-          break;
-        }
-      }
-    }
-
-    if (!dead && b.from?.startsWith("p:")) {
-      for (const e of r.enemies) {
-        if (d2(b.x, b.y, e.x, e.y) < 20 * 20) {
-          e.hp -= 22;
-          if (e.hp <= 0) {
-            const owner = b.from.split(":")[1];
-            if (r.players[owner]) r.players[owner].kills++;
-          }
-          dead = true;
-          break;
-        }
-      }
-    }
-
-    if (dead) r.bullets.splice(i, 1);
-  }
-
-  r.enemies = r.enemies.filter(e => e.hp > 0);
-
-  /* COLETAR VIDA */
-  for (let i = r.lifes.length - 1; i >= 0; i--) {
-    const l = r.lifes[i];
-    for (const p of Object.values(r.players)) {
-      if (!p.alive) continue;
-      if (d2(l.x, l.y, p.x, p.y) < (l.r + 18) ** 2) {
-        p.hp = Math.min(p.max, p.hp + 45);
-        r.lifes.splice(i, 1);
-        break;
-      }
-    }
-  }
-
-  /* ABRIR PORTA APÓS 5 KILLS */
-  for (const p of Object.values(r.players)) {
-    if (p.kills >= 5) r.door.open = true;
-  }
-
-  /* VITÓRIA / DERROTA */
-  const alive = Object.values(r.players).filter(p => p.alive);
-  r.result = null;
-
-  if (alive.length === 0) r.result = { lose: true };
-
-  if (r.door.open && alive.length) {
-    const inDoor = alive.filter(p =>
-      d2(p.x, p.y, r.door.x, r.door.y) < (r.door.r + 20) ** 2
-    );
-    if (inDoor.length === alive.length) {
-      let win = inDoor[0];
-      for (const p of inDoor) if (p.kills > win.kills) win = p;
-      r.result = { win: win.id };
-    }
-  }
-
-  broadcast(roomId, {
-    t: "snapshot",
-    map: { w: MAP.w, h: MAP.h, close: r.close, door: r.door },
-    players: r.players,
-    enemies: r.enemies,
-    bullets: r.bullets,
-    lifes: r.lifes,
-    result: r.result
+    return b.life > 0;
   });
 }
 
 setInterval(() => {
-  for (const [id, r] of ROOMS) tickRoom(id, r);
+  for (const room of ROOMS.values()) tick(room);
 }, TICK);
 
-/* ===== WS ===== */
 wss.on("connection", ws => {
   const id = rid();
+  let room;
 
   ws.on("message", raw => {
-    let m;
-    try { m = JSON.parse(raw); } catch { return; }
+    const m = JSON.parse(raw);
 
     if (m.t === "join") {
-      const roomId = String(m.room || "sala1").slice(0, 24);
-      ws.roomId = roomId;
-      const r = roomGet(roomId);
-      r.clients.set(ws, id);
+      room = ROOMS.get(m.room) || newRoom();
+      ROOMS.set(m.room, room);
 
-      const cls = m.cls === "tank" ? "tank" : "soldier";
-      const max = cls === "tank" ? 160 : 110;
-
-      r.players[id] = {
-        x: rand(300, 500),
-        y: rand(300, 500),
-        ix: 0, iy: 0,
-        aimX: 1, aimY: 0,
-        hp: max, max,
+      room.players[id] = {
+        x: rand(400, 600),
+        y: rand(400, 600),
+        ix: 0,
+        iy: 0,
+        hp: m.cls === "tank" ? 160 : 110,
+        max: m.cls === "tank" ? 160 : 110,
         alive: true,
-        cls,
-        name: String(m.name || id).slice(0, 14),
-        kills: 0
+        kills: 0,
+        cls: m.cls
       };
 
-      ws.send(JSON.stringify({ t: "you", id, roomId }));
-      return;
+      ws.send(JSON.stringify({ t: "you", id }));
     }
 
-    const r = ROOMS.get(ws.roomId);
-    if (!r) return;
-    const p = r.players[id];
-    if (!p) return;
-
-    if (m.t === "input") {
-      p.ix = clamp(m.ix || 0, -1, 1);
-      p.iy = clamp(m.iy || 0, -1, 1);
-      p.aimX = m.aimX || p.aimX;
-      p.aimY = m.aimY || p.aimY;
-    }
-
-    if (m.t === "shoot" && p.alive) {
-      const len = Math.hypot(p.aimX, p.aimY) || 1;
-      r.bullets.push({
-        x: p.x + (p.aimX / len) * 28,
-        y: p.y + (p.aimY / len) * 28,
-        vx: (p.aimX / len) * 9,
-        vy: (p.aimY / len) * 9,
-        from: `p:${id}`,
-        life: 75
-      });
+    if (m.t === "input" && room.players[id]) {
+      room.players[id].ix = m.ix;
+      room.players[id].iy = m.iy;
     }
   });
 
   ws.on("close", () => {
-    const r = ROOMS.get(ws.roomId);
-    if (!r) return;
-    r.clients.delete(ws);
-    delete r.players[id];
-    if (r.clients.size === 0) ROOMS.delete(ws.roomId);
+    if (room) delete room.players[id];
   });
+
+  setInterval(() => {
+    if (!room) return;
+    ws.send(JSON.stringify({ t: "state", room }));
+  }, 50);
 });
 
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => console.log("Servidor rodando na porta", PORT));
+server.listen(process.env.PORT || 10000);

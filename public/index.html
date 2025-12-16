@@ -35,7 +35,41 @@ button{background:#ffc;color:#000;font-weight:bold}
 <script>
 const c=document.getElementById("c"),ctx=c.getContext("2d");
 c.width=innerWidth;c.height=innerHeight;
+const MAP_WIDTH = 1800; // Constante do mapa (Server)
+const MAP_HEIGHT = 1000;
 
+// --- NOVO MÓDULO 1: Assets e Pré-Carregamento ---
+const Assets = {
+    sprites: {},
+    sources: {
+        player: 'img/player_sprite.png',    // Player (ex: 64x64)
+        enemy: 'img/enemy_sprite.png',      // Inimigo (ex: 50x50)
+        door_closed: 'img/door_closed.png', // Porta fechada (ex: 40x60)
+        door_open: 'img/door_open.png',     // Porta aberta (ex: 40x60)
+        life_pack: 'img/life_pack.png'      // Vida (ex: 30x30)
+    },
+
+    loadAll(callback) {
+        let loadedCount = 0;
+        const totalCount = Object.keys(this.sources).length;
+        if(totalCount === 0) { callback(); return; }
+
+        for (let key in this.sources) {
+            const img = new Image();
+            img.src = this.sources[key];
+            img.onload = () => {
+                loadedCount++;
+                if (loadedCount >= totalCount) {
+                    console.log("Assets carregados!");
+                    callback();
+                }
+            };
+            this.sprites[key] = img;
+        }
+    }
+};
+
+// --- INICIALIZAÇÃO DE VARIÁVEIS E WEBSOCKET ---
 const ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
 let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
 
@@ -46,7 +80,8 @@ function join(){
     name:document.getElementById("name").value,
     room:roomKey
   }));
-  document.getElementById("menu").style.display="none";
+  // Menu só é escondido após o join.
+  document.getElementById("menu").style.display="none"; 
 }
 
 ws.onmessage=e=>{
@@ -55,7 +90,7 @@ ws.onmessage=e=>{
   if(m.t==="state") state=m.rooms[roomKey];
 };
 
-// joystick
+// --- CONTROLES (inalterados) ---
 const joy=document.getElementById("joy");
 const knob=document.getElementById("knob");
 let center={x:0,y:0},drag=false,MAX=50;
@@ -86,54 +121,155 @@ joy.onpointerup=()=>{
   ws.send(JSON.stringify({t:"move",x:0,y:0}));
 };
 
-// atirar
 document.getElementById("fire").onclick=()=>{
   ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
 };
 
-// draw
-function loop(){
-  ctx.clearRect(0,0,c.width,c.height);
-  if(!state||!myId){requestAnimationFrame(loop);return;}
+// --- NOVO MÓDULO 2: Renderer (Draw Loop) ---
+const Renderer = {
+    PLAYER_VISUAL_SIZE: 32, // Para desenhar 64x64 centralizado
+    ENEMY_VISUAL_SIZE: 25,  // Para desenhar 50x50 centralizado
+    
+    draw() {
+        ctx.clearRect(0,0,c.width,c.height);
+        if(!state||!myId){requestAnimationFrame(Renderer.draw);return;}
 
-  const me=state.players[myId];
-  ctx.save();ctx.translate(c.width/2-me.x,c.height/2-me.y);
+        const me=state.players[myId];
+        ctx.save();
+        // Câmera segue o jogador
+        ctx.translate(c.width/2-me.x,c.height/2-me.y);
+        
+        // 1. Fundo/Mapa (Gramado simples)
+        ctx.fillStyle = '#4f6c4c'; // Cor base do chão
+        ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT); 
 
-  // players
-  for(const p of Object.values(state.players)){
-    ctx.fillStyle=p.id===myId?"#0f0":"#f00";
-    ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
+        // 2. Elementos: Porta e Vidas
+        Renderer.drawDoor(state.door);
+        Renderer.drawLifes(state.lifes);
 
-    // HP bar
-    ctx.fillStyle="rgba(0,0,0,.5)";
-    ctx.fillRect(p.x-22,p.y-28,44,6);
-    ctx.fillStyle="#22c55e";
-    ctx.fillRect(p.x-22,p.y-28,44*(p.hp/p.max),6);
-  }
+        // 3. Balas
+        Renderer.drawBullets(state.bullets);
 
-  // enemies
-  state.enemies.forEach(e=>{
-    ctx.fillStyle="#ff0";
-    ctx.beginPath();ctx.arc(e.x,e.y,14,0,Math.PI*2);ctx.fill();
-  });
+        // 4. Inimigos
+        Renderer.drawEnemies(state.enemies);
 
-  // bullets
-  state.bullets.forEach(b=>{
-    ctx.fillStyle=b.from==="e"?"#ff4d6d":"#fff";
-    ctx.fillRect(b.x-2,b.y-2,4,4);
-  });
+        // 5. Players
+        Renderer.drawPlayers(state.players, myId);
+        
+        // 6. Zona de Dano (Sempre por cima, exceto HUD)
+        Renderer.drawZone(state.zone);
 
-  // door
-  ctx.fillStyle=state.door.open?"#0f0":"#f00";
-  ctx.fillRect(state.door.x-20,state.door.y-30,40,60);
 
-  ctx.restore();
-  document.getElementById("hud").textContent=
-    `HP: ${Math.floor(me.hp)} | Kills: ${me.kills}`;
+        ctx.restore(); // Volta o contexto para que o HUD não seja afetado
 
-  requestAnimationFrame(loop);
-}
-loop();
+        document.getElementById("hud").textContent=
+            `HP: ${Math.floor(me.hp)} | Kills: ${me.kills}`;
+
+        requestAnimationFrame(Renderer.draw);
+    },
+
+    // --- FUNÇÕES DE DESENHO COM SPRITES ---
+
+    drawPlayers(players, myId) {
+        for(const p of Object.values(players)){
+            if(p.hp <= 0) continue; // Não desenha players mortos
+            
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            
+            const size = Renderer.PLAYER_VISUAL_SIZE;
+            const sprite = Assets.sprites.player;
+
+            // Determina a direção para "virar" o sprite (Flip Horizontal)
+            let currentAimX = p.id === myId ? aim.x : p.ix;
+            
+            // Se a direção é negativa (olhando para a esquerda), espelha o contexto
+            if (currentAimX < 0) {
+                 ctx.scale(-1, 1);
+            }
+
+            // Desenha a imagem (Recorte 0, Desenho Centralizado)
+            // Assumindo sprite de 64x64
+            ctx.drawImage(sprite, 
+                          0, 0, 64, 64, // Recorte (Exemplo: Primeiro quadro de 64x64)
+                          -size, -size, size * 2, size * 2); // Desenho (32*2 = 64px de largura total)
+
+            ctx.restore(); // Volta o contexto para que a HP bar não fique espelhada
+            
+            // HP bar
+            ctx.fillStyle="rgba(0,0,0,.5)";
+            ctx.fillRect(p.x-22,p.y-28,44,6);
+            ctx.fillStyle="#22c55e";
+            ctx.fillRect(p.x-22,p.y-28,44*(p.hp/p.max),6);
+
+            // Nome do Player
+            ctx.textAlign = 'center';
+            ctx.fillStyle = p.id===myId?"#ffc":"#fff";
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText(p.name, p.x, p.y - 35);
+        }
+    },
+
+    drawEnemies(enemies) {
+        enemies.forEach(e => {
+            const size = Renderer.ENEMY_VISUAL_SIZE;
+            const sprite = Assets.sprites.enemy;
+            
+            // Desenho do Inimigo (Assumindo sprite de 50x50)
+            ctx.drawImage(sprite, 
+                          0, 0, 50, 50, // Recorte (Exemplo: Primeiro quadro de 50x50)
+                          e.x - size, e.y - size, size * 2, size * 2); // Desenho (50px de largura total)
+            
+            // HP bar
+            ctx.fillStyle="rgba(0,0,0,.5)";
+            ctx.fillRect(e.x-15,e.y-22,30,4);
+            ctx.fillStyle="#f00";
+            ctx.fillRect(e.x-15,e.y-22,30*(e.hp/60),4); // Max HP 60 (Server logic)
+        });
+    },
+
+    drawDoor(door) {
+        const sprite = door.open ? Assets.sprites.door_open : Assets.sprites.door_closed;
+        // Desenha no mesmo local do antigo fillRect (40x60)
+        ctx.drawImage(sprite, door.x - 20, door.y - 30, 40, 60);
+    },
+
+    drawLifes(lifes) {
+        lifes.forEach(l => {
+            const sprite = Assets.sprites.life_pack;
+            // Desenha a vida centralizada (30x30)
+            ctx.drawImage(sprite, l.x - 15, l.y - 15, 30, 30);
+        });
+    },
+
+    drawBullets(bullets) {
+        // Mantido como quadrado simples por ser mais performático
+        bullets.forEach(b=>{
+            ctx.fillStyle=b.from==="e"?"#ff4d6d":"#fff";
+            ctx.fillRect(b.x-2,b.y-2,4,4);
+        });
+    },
+
+    drawZone(zone) {
+        // Zona Fechando: desenha o mapa escurecido nas bordas
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.15)'; 
+        // Borda superior
+        ctx.fillRect(0, 0, MAP_WIDTH, zone); 
+        // Borda inferior
+        ctx.fillRect(0, MAP_HEIGHT - zone, MAP_WIDTH, zone); 
+        // Borda esquerda
+        ctx.fillRect(0, zone, zone, MAP_HEIGHT - 2 * zone);
+        // Borda direita
+        ctx.fillRect(MAP_WIDTH - zone, zone, zone, MAP_HEIGHT - 2 * zone);
+    }
+};
+
+// --- PONTO DE ENTRADA FINAL ---
+// O jogo só inicia o loop de renderização (Renderer.draw) após carregar os assets.
+Assets.loadAll(() => {
+    // A função 'join' controla o aparecimento do menu.
+    requestAnimationFrame(Renderer.draw);
+});
 </script>
 </body>
 </html>

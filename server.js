@@ -1,151 +1,118 @@
-<!doctype html>
-<html lang="pt-br">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>SlugBrawl Online</title>
+const express = require("express");
+const http = require("http");
+const WebSocket = require("ws");
+const path = require("path");
 
-<style>
-html,body{margin:0;overflow:hidden;background:#0b0f1a;color:#fff;font-family:Arial;touch-action:none}
-canvas{display:block}
+const app = express();
+app.use(express.static(path.join(__dirname, "public")));
+app.get("/", (_, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
-/* MENU */
-#menu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index:10}
-#menu .box{background:#111827;padding:20px;border-radius:16px;width:90%;max-width:360px}
-input,select,button{width:100%;margin-top:10px;padding:12px;border-radius:12px;border:none;font-weight:bold}
-button{background:#facc15;color:#000}
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-/* CONTROLES */
-.joy{position:fixed;bottom:20px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.15);border:2px solid rgba(255,255,255,.25)}
-#joyMove{left:20px}
-.knob{width:60px;height:60px;background:#fff;border-radius:50%;position:absolute;left:50%;top:50%;margin:-30px}
-#fireBtn{position:fixed;right:40px;bottom:60px;width:90px;height:50px;border-radius:14px;background:#ffb703;color:#000;font-weight:bold;display:flex;align-items:center;justify-content:center}
+const MAP = { w: 2200, h: 1400 };
+const TICK = 50;
+const ROOMS = new Map();
 
-/* HUD */
-#hud{position:fixed;top:10px;left:10px;font-weight:bold;background:rgba(0,0,0,.4);padding:8px 12px;border-radius:10px}
-</style>
-</head>
+const rand = (a, b) => a + Math.random() * (b - a);
+const rid = () => Math.random().toString(36).slice(2, 8);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const d2 = (ax, ay, bx, by) => {
+  const dx = ax - bx, dy = ay - by;
+  return dx * dx + dy * dy;
+};
 
-<body>
-
-<div id="menu">
-  <div class="box">
-    <h2>SlugBrawl</h2>
-    <input id="name" placeholder="Seu nome">
-    <input id="room" placeholder="Sala (ex: sala1)">
-    <select id="cls">
-      <option value="soldier">Soldado</option>
-      <option value="tank">Tank</option>
-    </select>
-    <button onclick="join()">ENTRAR</button>
-  </div>
-</div>
-
-<div id="hud">Modo: Solo</div>
-
-<canvas id="c"></canvas>
-
-<div id="joyMove" class="joy"><div class="knob"></div></div>
-<div id="fireBtn">ATIRAR</div>
-
-<script>
-const c=document.getElementById("c"),ctx=c.getContext("2d");
-function resize(){c.width=innerWidth;c.height=innerHeight}
-addEventListener("resize",resize);resize();
-
-const AC=new (window.AudioContext||webkitAudioContext)();
-function sfx(f){const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=f;o.connect(g);g.connect(AC.destination);o.start();g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+.1);o.stop(AC.currentTime+.1)}
-
-const WS=(location.protocol==="https:"?"wss://":"ws://")+location.host;
-let ws,myId=null,snap=null;
-
-function join(){
-  AC.resume();
-  ws=new WebSocket(WS);
-  ws.onopen=()=>ws.send(JSON.stringify({t:"join",name:name.value||"Player",room:room.value||"solo",cls:cls.value}));
-  ws.onmessage=e=>{
-    const m=JSON.parse(e.data);
-    if(m.t==="you"){myId=m.id;menu.style.display="none"}
-    if(m.t==="snapshot"){snap=m;updateHud()}
-  };
+function roomGet(id) {
+  if (!ROOMS.has(id)) {
+    ROOMS.set(id, {
+      players: {}, clients: new Map(),
+      bullets: [], enemies: [], lifes: [],
+      close: 0, startedAt: Date.now(),
+      lastEnemyAt: 0, lastLifeAt: 0,
+      door: { x: MAP.w - 260, y: MAP.h - 220, r: 44 },
+      result: null
+    });
+  }
+  return ROOMS.get(id);
 }
 
-function updateHud(){
-  if(!snap) return;
-  const count=Object.keys(snap.players||{}).length;
-  hud.textContent="Modo: "+(count>1?"Online":"Solo");
+function broadcast(roomId, data) {
+  const r = ROOMS.get(roomId);
+  if (!r) return;
+  const msg = JSON.stringify(data);
+  for (const ws of r.clients.keys()) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+  }
 }
 
-let move={x:0,y:0},aim={x:1,y:0},firing=false;
+function spawnEnemy(r) {
+  r.enemies.push({ x: rand(240, MAP.w - 240), y: rand(240, MAP.h - 240), hp: 70, cd: 0 });
+}
+function spawnLife(r) {
+  r.lifes.push({ x: rand(220, MAP.w - 220), y: rand(220, MAP.h - 220), r: 14 });
+}
 
-(()=>{
-  const joy=joyMove,knob=joy.firstChild;
-  let cx,cy;
-  joy.onpointerdown=e=>{
-    const r=joy.getBoundingClientRect();
-    cx=r.left+r.width/2;cy=r.top+r.height/2;
-    joy.setPointerCapture(e.pointerId);
-  };
-  joy.onpointermove=e=>{
-    const dx=e.clientX-cx,dy=e.clientY-cy;
-    const d=Math.hypot(dx,dy),m=Math.min(d,45);
-    const nx=dx/d*m||0,ny=dy/d*m||0;
-    knob.style.transform=`translate(${nx}px,${ny}px)`;
-    move.x=nx/45;move.y=ny/45;
-    if(Math.abs(move.x)>0.1||Math.abs(move.y)>0.1){
-      const l=Math.hypot(move.x,move.y);
-      aim.x=move.x/l;aim.y=move.y/l;
+function tickRoom(roomId, r) {
+  const now = Date.now();
+
+  if (now - r.startedAt > 4000) r.close = Math.min(520, r.close + 0.45);
+
+  if (now - r.lastEnemyAt > 1400) { spawnEnemy(r); r.lastEnemyAt = now; }
+  if (now - r.lastLifeAt > 4000) { spawnLife(r); r.lastLifeAt = now; }
+
+  for (const p of Object.values(r.players)) {
+    if (!p.alive) continue;
+    const speed = p.cls === "tank" ? 2.2 : 2.8;
+    let ix = clamp(p.ix || 0, -1, 1), iy = clamp(p.iy || 0, -1, 1);
+    const len = Math.hypot(ix, iy); if (len > 1) { ix /= len; iy /= len; }
+    p.x = clamp(p.x + ix * speed, 18, MAP.w - 18);
+    p.y = clamp(p.y + iy * speed, 18, MAP.h - 18);
+  }
+
+  broadcast(roomId, {
+    t: "snapshot",
+    map: { w: MAP.w, h: MAP.h, close: r.close, door: r.door },
+    players: r.players, enemies: r.enemies, bullets: r.bullets, lifes: r.lifes,
+    result: r.result
+  });
+}
+
+setInterval(() => {
+  for (const [id, r] of ROOMS) tickRoom(id, r);
+}, TICK);
+
+wss.on("connection", (ws) => {
+  const id = rid();
+
+  ws.on("message", (raw) => {
+    let m; try { m = JSON.parse(raw); } catch { return; }
+
+    if (m.t === "join") {
+      const roomId = String(m.room || "sala1").slice(0, 24);
+      ws.roomId = roomId; ws.playerId = id;
+      const r = roomGet(roomId);
+      r.clients.set(ws, id);
+      const cls = (m.cls === "tank") ? "tank" : "soldier";
+      const max = (cls === "tank") ? 160 : 110;
+      r.players[id] = {
+        x: rand(300, 500), y: rand(300, 500),
+        ix: 0, iy: 0, aimX: 1, aimY: 0,
+        hp: max, max, alive: true, cls,
+        name: String(m.name || id).slice(0, 14),
+        kills: 0
+      };
+      ws.send(JSON.stringify({ t: "you", id, roomId }));
     }
-  };
-  joy.onpointerup=()=>{knob.style.transform="";move.x=move.y=0};
-})();
-
-fireBtn.onpointerdown=()=>{firing=true;AC.resume()};
-fireBtn.onpointerup=()=>firing=false;
-
-let last=0;
-function loop(t){
-  if(!snap||!snap.players||!snap.players[myId]){requestAnimationFrame(loop);return;}
-  if(ws&&t-last>50){
-    ws.send(JSON.stringify({t:"input",ix:move.x,iy:move.y,aimX:aim.x,aimY:aim.y}));
-    if(firing){ws.send(JSON.stringify({t:"shoot",aimX:aim.x,aimY:aim.y}));sfx(650)}
-    last=t;
-  }
-  draw();
-  requestAnimationFrame(loop);
-}
-requestAnimationFrame(loop);
-
-function draw(){
-  const me=snap.players[myId];
-  const camX=me.x-c.width/2,camY=me.y-c.height/2;
-  ctx.clearRect(0,0,c.width,c.height);
-  ctx.save();ctx.translate(-camX,-camY);
-
-  ctx.fillStyle="#0f1a3a";
-  ctx.fillRect(0,0,snap.map.w,snap.map.h);
-
-  snap.bullets.forEach(b=>{
-    ctx.fillStyle=b.from==="e"?"#ff4d6d":"#ffd60a";
-    ctx.fillRect(b.x-3,b.y-3,6,6);
   });
 
-  snap.enemies.forEach(e=>{
-    ctx.fillStyle="orange";
-    ctx.beginPath();ctx.arc(e.x,e.y,16,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle="red";
-    ctx.fillRect(e.x-20,e.y-28,40*(e.hp/70),5);
+  ws.on("close", () => {
+    const r = ROOMS.get(ws.roomId);
+    if (!r) return;
+    r.clients.delete(ws);
+    delete r.players[id];
+    if (r.clients.size === 0) ROOMS.delete(ws.roomId);
   });
+});
 
-  for(const [id,p] of Object.entries(snap.players)){
-    ctx.fillStyle=id===myId?"cyan":"lime";
-    ctx.beginPath();ctx.arc(p.x,p.y,18,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle="green";
-    ctx.fillRect(p.x-20,p.y-30,40*(p.hp/p.max),5);
-  }
-
-  ctx.restore();
-}
-</script>
-</body>
-</html>
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => console.log("Servidor rodando na porta", PORT));

@@ -50,7 +50,7 @@ wss.on("connection",ws=>{
         ix:0, iy:0,
         alive: true,
         status: null,
-        color: m.color || "#22c55e" // Armazena a cor
+        color: m.color || "#22c55e" 
       };
       // Envia o novo ID e o HP base para o cliente
       ws.send(JSON.stringify({t:"you",id:pid, lastHp: 100})); 
@@ -73,9 +73,9 @@ wss.on("connection",ws=>{
     }
 
     if(m.t==="reset"){
-      // Deleta a sala para que um novo 'join' crie um mapa limpo
+      // Deleta a sala para que um novo 'join' crie um mapa limpo (reinício completo do mapa)
       delete rooms[rid];
-      // Não retorna o pid para garantir que o cliente precise de um novo
+      // Note: O playerID fica obsoleto e o cliente deve se reconectar e chamar 'join' novamente
     }
   });
 
@@ -107,6 +107,11 @@ setInterval(()=>{
       if(!p.alive) continue; 
 
       // Movimento (7x mais rápido)
+      const moveFactor = Math.hypot(p.ix, p.iy);
+      if (moveFactor > 1) { // Normaliza o vetor de movimento se for maior que 1
+          p.ix /= moveFactor;
+          p.iy /= moveFactor;
+      }
       p.x += p.ix * 7; 
       p.y += p.iy * 7; 
 
@@ -141,7 +146,8 @@ setInterval(()=>{
         const d = dist(e.x,e.y,p.x,p.y);
         if(d<best){best=d; target=p;}
       }
-      if(target && best<420 && e.cd===0){
+      // ALCANCE AUMENTADO (600) para atirar de mais longe
+      if(target && best < 600 && e.cd===0){ 
         e.cd=35;
         const dx=target.x-e.x, dy=target.y-e.y;
         const L=Math.hypot(dx,dy)||1;

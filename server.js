@@ -75,7 +75,10 @@ wss.on("connection",ws=>{
     if(m.t==="reset"){
       // Deleta a sala para que um novo 'join' crie um mapa limpo (reinício completo do mapa)
       delete rooms[rid];
-      // Note: O playerID fica obsoleto e o cliente deve se reconectar e chamar 'join' novamente
+      // Nota: O servidor deve parar de processar comandos para este pid/rid imediatamente
+      // Até que o cliente reconecte e envie um novo 'join'
+      pid = null; 
+      rid = null;
     }
   });
 
@@ -146,8 +149,8 @@ setInterval(()=>{
         const d = dist(e.x,e.y,p.x,p.y);
         if(d<best){best=d; target=p;}
       }
-      // ALCANCE AUMENTADO (600) para atirar de mais longe
-      if(target && best < 600 && e.cd===0){ 
+      // ALCANCE REVERTIDO/AJUSTADO: Inimigo só atira se estiver muito próximo (300)
+      if(target && best < 300 && e.cd===0){ 
         e.cd=35;
         const dx=target.x-e.x, dy=target.y-e.y;
         const L=Math.hypot(dx,dy)||1;
@@ -209,3 +212,4 @@ setInterval(()=>{
 },50);
 
 server.listen(process.env.PORT||10000,()=>console.log("Servidor ON"));
+

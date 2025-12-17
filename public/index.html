@@ -1,72 +1,60 @@
+
 <!doctype html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 body{
     margin:0;
     background:#000;
     color:#fff;
-    font-family:Arial;
+    font-family:Arial, sans-serif;
     -webkit-user-select: none; 
-    -moz-user-select: none;
-    -ms-user-select: none;
     user-select: none;
     touch-action: none; 
+    overflow: hidden;
 }
 canvas{display:block}
-#menu, #endMenu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index: 100; opacity: 1; transition: opacity 0.5s;}
-#box{background:#111;padding:16px;border-radius:12px;width:280px; text-align: center;}
-input,button{width:100%;margin-top:10px;padding:12px;border-radius:8px;border:none}
-button{background:#ffc;color:#000;font-weight:bold}
-#hud{position:fixed;top:10px;left:10px;font-weight:bold; color: #fff; text-shadow: 1px 1px 2px #000;}
-#soundToggle{position:fixed;top:10px;right:10px;padding:10px;background:#333;color:#fff;border-radius:8px;cursor:pointer}
+#menu, #endMenu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.8);z-index: 100;}
+#box, #endBox{background:#111;padding:20px;border-radius:12px;width:280px; text-align: center; border: 2px solid #333;}
+input,button{width:100%;margin-top:10px;padding:12px;border-radius:8px;border:none;box-sizing: border-box;}
+button{background:#ffc;color:#000;font-weight:bold; cursor: pointer;}
+#hud{position:fixed;top:10px;left:10px;font-weight:bold; color: #fff; text-shadow: 1px 1px 2px #000; pointer-events: none;}
+#soundToggle{position:fixed;top:10px;right:10px;padding:10px;background:#333;color:#fff;border-radius:8px;cursor:pointer; z-index: 110;}
 
-/* Estilos para Validação de Nome */
-.input-error {
-    border: 2px solid #f00 !important;
-    box-shadow: 0 0 5px #f00;
-}
-
-/* Estilos de Seleção de Jogador */
-#playerSelect{margin: 15px 0 10px 0; display: flex; justify-content: space-around;}
-.colorOption{width: 25px; height: 25px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; transition: border-color 0.1s;}
+#playerSelect{margin: 15px 0; display: flex; justify-content: space-around;}
+.colorOption{width: 30px; height: 30px; border-radius: 50%; border: 3px solid transparent; cursor: pointer;}
 .colorOption.selected{border-color: #ffc;}
 
-#joy{position:fixed;left:20px;bottom:20px;width:140px;height:140px;border-radius:50%;background:#333}
-#knob{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px;border-radius:50%;background:#fff}
-#fire{position:fixed;right:20px;bottom:60px;padding:18px;background:#ffc;color:#000;border-radius:12px;font-weight:bold}
+#joy{position:fixed;left:40px;bottom:40px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2);}
+#knob{position:absolute;left:50%;top:50%;width:50px;height:50px;margin:-25px;border-radius:50%;background:#fff; box-shadow: 0 0 10px rgba(0,0,0,0.5);}
+#fire{position:fixed;right:40px;bottom:60px;width:80px;height:80px;background:#ffc;color:#000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold; font-size: 12px; box-shadow: 0 4px 0 #bba;}
 
-#endBox{background:#111;padding:25px;border-radius:12px;width:350px; text-align: center;}
-#endTitle{font-size: 2em; margin-bottom: 10px;}
-#endStats{margin-bottom: 20px;}
+#endTitle{font-size: 1.8em; margin-bottom: 10px;}
 </style>
 </head>
 <body>
 
 <div id="menu">
   <div id="box">
-    <h3>SlugBrawl</h3>
-    <p id="errorMsg" style="color: #f00; font-size: 0.9em; display: none;">* O nome não pode estar vazio!</p>
-    <input id="name" placeholder="Nome">
+    <h3>SLUG BRAWL</h3>
+    <input id="name" placeholder="Teu Nome" maxlength="12">
     <div id="playerSelect">
-        <div class="colorOption selected" style="background-color: #22c55e;" data-color="#22c55e" onclick="selectColor(this)"></div>
-        <div class="colorOption" style="background-color: #3b82f6;" data-color="#3b82f6" onclick="selectColor(this)"></div>
-        <div class="colorOption" style="background-color: #a855f7;" data-color="#a855f7" onclick="selectColor(this)"></div>
-        <div class="colorOption" style="background-color: #f97316;" data-color="#f97316" onclick="selectColor(this)"></div>
-        <div class="colorOption" style="background-color: #06b6d4;" data-color="#06b6d4" onclick="selectColor(this)"></div>
+        <div class="colorOption selected" style="background:#22c55e" data-color="#22c55e" onclick="selectColor(this)"></div>
+        <div class="colorOption" style="background:#3b82f6" data-color="#3b82f6" onclick="selectColor(this)"></div>
+        <div class="colorOption" style="background:#a855f7" data-color="#a855f7" onclick="selectColor(this)"></div>
+        <div class="colorOption" style="background:#f97316" data-color="#f97316" onclick="selectColor(this)"></div>
     </div>
-    <input id="room" placeholder="Sala (ou vazio solo)">
-    <button onclick="join()">JOGAR</button>
+    <input id="room" placeholder="Sala (Opcional)">
+    <button onclick="join()">INICIAR JOGO</button>
   </div>
 </div>
 
-<div id="endMenu" style="display:none; opacity: 0;">
+<div id="endMenu" style="display:none">
     <div id="endBox">
-        <h3 id="endTitle">FIM DE JOGO</h3>
+        <h3 id="endTitle">FIM</h3>
         <div id="endStats"></div>
-        <button onclick="restartGame()">REINICIAR</button>
-        <p style="font-size: 0.8em; margin-top: 15px;">(O mapa será resetado)</p>
+        <button onclick="restartGame()">REINICIAR TUDO</button>
     </div>
 </div>
 
@@ -77,420 +65,205 @@ button{background:#ffc;color:#000;font-weight:bold}
 <div id="fire">ATIRAR</div>
 
 <script>
-const c=document.getElementById("c"),ctx=c.getContext("2d");
-c.width=innerWidth;c.height=innerHeight;
-const MAP_WIDTH = 1800; 
-const MAP_HEIGHT = 1000;
-let lastPlayerHp = 100;
-let isGameOver = false;
-let playerColor = "#22c55e"; 
-let savedKills = 0; 
+const c=document.getElementById("c"), ctx=c.getContext("2d");
+const MAP_W = 1800, MAP_H = 1000;
+let ws, myId, state, roomKey="solo";
+let lastHp = 100, isGameOver = true, playerColor = "#22c55e";
+let isFiring = false, fireCooldown = 0;
+const FIRE_RATE = 5;
 
-// --- Variáveis de TIRO CONTÍNUO ---
-let isFiring = false;
-let fireCooldown = 0; 
-const FIRE_RATE = 5; 
+function resize(){ c.width=innerWidth; c.height=innerHeight; }
+window.onresize = resize; resize();
 
-// --- WEBSOCKET ---
-let ws; 
-let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
+function selectColor(el){
+    document.querySelectorAll('.colorOption').forEach(e=>e.classList.remove('selected'));
+    el.classList.add('selected');
+    playerColor = el.dataset.color;
+}
 
-// --- FUNÇÃO DE TIRO CONTÍNUO ---
+// --- TIRO CONTÍNUO ---
 function continuousShoot() {
     if (!isFiring || isGameOver) return;
     if (fireCooldown <= 0) {
-        Audio.playSound('shoot_sound', 0.5); 
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
+        if (ws && ws.readyState === 1) {
+            Audio.playSound('shoot', 0.4);
+            ws.send(JSON.stringify({t:"shoot", ax:aim.x, ay:aim.y}));
         }
-        fireCooldown = FIRE_RATE; 
+        fireCooldown = FIRE_RATE;
     }
-    fireCooldown = Math.max(0, fireCooldown - 1);
-    requestAnimationFrame(continuousShoot); 
+    fireCooldown--;
+    requestAnimationFrame(continuousShoot);
 }
 
-
-// --- LÓGICA DE WEBSOCKET E JOGO ---
-function connectWebSocket(callback) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        callback();
-        return;
-    }
-
-    if (ws) {
-        ws.close();
-    }
-    
-    ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
-    
-    ws.onopen = () => {
-        console.log("WebSocket conectado.");
-        ws.onmessage = handleWebSocketMessage;
-        callback(); 
-    };
-
-    ws.onerror = (error) => {
-        console.error("WebSocket Error: ", error);
-        alert("Erro de conexão com o servidor.");
-    };
-}
-
-
+// --- CONEXÃO E REINÍCIO ---
 function join(){
-  const nameInput = document.getElementById("name");
-  const errorMsg = document.getElementById("errorMsg");
+    const n = document.getElementById("name").value.trim();
+    if(!n) return alert("Digita um nome!");
+    
+    // Reset de variáveis locais
+    state = null; myId = null; lastHp = 100; isGameOver = false;
+    
+    if(!ws || ws.readyState !== 1){
+        ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
+        ws.onmessage = handleMsg;
+    }
 
-  if (nameInput.value.trim() === "") {
-      errorMsg.style.display = "block";
-      nameInput.classList.add('input-error');
-      nameInput.focus();
-      return;
-  }
-  errorMsg.style.display = "none";
-  nameInput.classList.remove('input-error');
-  
-  // ZERA AS KILLS AO INICIAR UM NOVO JOGO (previne bugs visuais)
-  savedKills = 0;
-
-  connectWebSocket(() => {
-    Audio.context.resume(); 
-    roomKey=document.getElementById("room").value||"solo";
-    ws.send(JSON.stringify({
-      t:"join",
-      name:nameInput.value,
-      room:roomKey,
-      color: playerColor 
-    }));
-    document.getElementById("menu").style.display="none"; 
-    isGameOver = false;
-    document.getElementById("endMenu").style.display="none"; 
-    document.getElementById("joy").style.display="block";
-    document.getElementById("fire").style.display="block";
-  });
+    ws.onopen = () => {
+        roomKey = document.getElementById("room").value || "solo";
+        ws.send(JSON.stringify({t:"join", name:n, room:roomKey, color:playerColor}));
+        document.getElementById("menu").style.display="none";
+        document.getElementById("endMenu").style.display="none";
+    };
+    
+    if(ws.readyState === 1) ws.onopen();
 }
 
-// FUNÇÃO CRÍTICA: REINÍCIO COMPLETO DO JOGO
 function restartGame(){
-    
-    // 1. Salva a pontuação final antes do reset para o End Menu
-    if(myId && state && state.players[myId]){
-        savedKills = state.players[myId].kills; 
-    }
-    
-    // 2. Envia o comando de reset para o servidor (deletar a sala)
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({t:"reset"})); 
-    }
-    
-    // 3. Fecha a conexão atual (impede o cliente de receber o estado da sala antiga)
-    if (ws) {
-        ws.close();
-    }
-    
-    // 4. Reseta o estado do cliente local
-    myId = null; 
-    state = null;
-    isGameOver = true; 
-    
-    // 5. Reconecta após um delay de 500ms para garantir que a sala foi deletada
-    setTimeout(join, 500); 
-}
-
-function showEndMenu(status, kills){
+    if(ws && ws.readyState === 1) ws.send(JSON.stringify({t:"reset"}));
+    if(ws) ws.close();
     isGameOver = true;
-    isFiring = false; 
-    document.getElementById("joy").style.display="none";
-    document.getElementById("fire").style.display="none";
-    
-    const title = document.getElementById("endTitle");
-    const stats = document.getElementById("endStats");
-    let message = "";
-
-    const killsToDisplay = kills || savedKills; 
-    
-    if (status === 'victory') {
-        title.textContent = "🏆 VITÓRIA!";
-        title.style.color = "#22c55e";
-        Audio.playSound('victory_sound', 1.0);
-        message = `Parabéns! Você escapou da fase.<br>Você eliminou **${killsToDisplay}** inimigos.`;
-    } else {
-        title.textContent = "💀 FIM DE JOGO";
-        title.style.color = "#f00";
-        Audio.playSound('death_sound', 1.0);
-        message = `Você foi eliminado. Sua pontuação foi:<br>Mortes: **${killsToDisplay}**`;
-    }
-    
-    stats.innerHTML = `<p style="font-size: 1.2em;">${message}</p>`;
-
-    document.getElementById("endMenu").style.display="flex";
-    setTimeout(() => {
-        document.getElementById("endMenu").style.opacity = 1;
-    }, 10); 
+    isFiring = false;
+    ctx.clearRect(0,0,c.width,c.height); // Limpa o ecrã imediatamente
+    setTimeout(join, 600); // Tempo para o servidor limpar a sala
 }
 
-function handleWebSocketMessage(e) {
-    const m=JSON.parse(e.data);
-    if(m.t==="you"){
-        myId=m.id;
-        lastPlayerHp = m.lastHp;
-    }
+function handleMsg(e){
+    const m = JSON.parse(e.data);
+    if(m.t==="you") myId = m.id;
     if(m.t==="state"){
-        state=m.rooms[roomKey];
+        state = m.rooms[roomKey];
         if(!state) return;
-
-        if(myId && state.players[myId]) {
-            const me = state.players[myId];
-            
-            if(me.status && !isGameOver){
-                showEndMenu(me.status, me.kills);
-            }
-            
-            if(me.hp < lastPlayerHp && me.hp > 0) { Audio.playSound('damage_sound', 0.8); } 
-            else if (me.hp > lastPlayerHp) { Audio.playSound('heal_sound', 0.7); }
-            lastPlayerHp = me.hp;
+        const me = state.players[myId];
+        if(me){
+            if(me.hp < lastHp && me.hp > 0) Audio.playSound('damage', 0.6);
+            lastHp = me.hp;
+            if(me.status && !isGameOver) showEnd(me.status, me.kills);
         }
     }
 }
 
-// --- CONTROLES (Sem Alterações) ---
-const joy=document.getElementById("joy");
-const knob=document.getElementById("knob");
-let center={x:0,y:0},drag=false,MAX=50;
-
-joy.onpointerdown=e=>{
-  if(isGameOver) return;
-  Audio.context.resume(); 
-  const r=joy.getBoundingClientRect();
-  center.x=r.left+r.width/2;
-  center.y=r.top+r.height/2;
-  drag=true;
-  e.preventDefault(); 
-};
-
-joy.onpointermove=e=>{
-  if(!drag || isGameOver) return;
-  
-  const dx=e.clientX-center.x,dy=e.clientY-center.y;
-  const d=Math.hypot(dx,dy);
-  const m=Math.min(d,MAX);
-  
-  const nx=(dx/d||0)*m,ny=(dy/d||0)*m;
-  knob.style.transform=`translate(${nx}px,${ny}px)`;
-  
-  move.x = dx / MAX;
-  move.y = dy / MAX;
-
-  const L=Math.hypot(move.x,move.y)||1;
-  aim.x=move.x/L; aim.y=move.y/L;
-  
-  const factor = Math.min(1, L);
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({t:"move",x:move.x*factor,y:move.y*factor}));
-  }
-  e.preventDefault(); 
-};
-
-joy.onpointerup=()=>{
-  if(isGameOver) return;
-  drag=false; knob.style.transform="";
-  move.x=move.y=0;
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({t:"move",x:0,y:0}));
-  }
-};
-
-
-// --- CONTROLES DE TIRO CONTÍNUO (Sem Alterações) ---
-const fireButton = document.getElementById("fire");
-
-fireButton.onpointerdown = (e) => {
-  if (isGameOver) return;
-  if (!isFiring) {
-    isFiring = true;
-    fireCooldown = 0; 
-    continuousShoot();
-  }
-  e.preventDefault(); 
-};
-
-fireButton.onpointerup = () => {
-  isFiring = false;
-};
-
-fireButton.onpointerleave = () => {
-  isFiring = false;
-};
-
-
-// --- FUNÇÕES AUXILIARES (Áudio/Renderer - Sem Alterações) ---
-function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
-    const sampleRate = 44100;
-    const numSamples = sampleRate * duration;
-    const buffer = Audio.context.createBuffer(1, numSamples, sampleRate);
-    const data = buffer.getChannelData(0);
-
-    for (let i = 0; i < numSamples; i++) {
-        const time = i / sampleRate;
-        const volume = Math.exp(-time / decay);
-        let sample;
-        if (type === 'sine') { sample = Math.sin(2 * Math.PI * freq * time); } 
-        else if (type === 'square') { sample = Math.sign(Math.sin(2 * Math.PI * freq * time)); } 
-        else { sample = Math.random() * 2 - 1; }
-        data[i] = sample * volume;
-    }
-    return buffer;
+function showEnd(s, k){
+    isGameOver = true; isFiring = false;
+    const t = document.getElementById("endTitle");
+    t.textContent = s === 'victory' ? "VITÓRIA!" : "ELIMINADO!";
+    t.style.color = s === 'victory' ? "#22c55e" : "#f44";
+    document.getElementById("endStats").innerHTML = `<p>Inimigos derrotados: ${k}</p>`;
+    document.getElementById("endMenu").style.display = "flex";
+    Audio.playSound(s === 'victory' ? 'victory' : 'death', 0.8);
 }
 
-const Assets = { audioBuffers: {}, loadAll(callback) {
-    this.audioBuffers.shoot_sound = generateSynthAudio(800, 0.08, 'square', 0.05);
-    this.audioBuffers.damage_sound = generateSynthAudio(150, 0.2, 'sine', 0.1);
-    this.audioBuffers.heal_sound = generateSynthAudio(1200, 0.15, 'sine', 0.08);
-    this.audioBuffers.death_sound = generateSynthAudio(60, 0.5, 'square', 0.2);
-    this.audioBuffers.victory_sound = generateSynthAudio(1500, 0.3, 'sine', 0.2);
-    callback();
-}};
+// --- CONTROLOS ---
+let aim={x:1,y:0}, move={x:0,y:0}, drag=false;
+const joy=document.getElementById("joy"), knob=document.getElementById("knob");
 
+joy.onpointerdown=e=>{ drag=true; Audio.context.resume(); };
+window.onpointermove=e=>{
+    if(!drag || isGameOver) return;
+    const r=joy.getBoundingClientRect(), cx=r.left+60, cy=r.top+60;
+    const dx=e.clientX-cx, dy=e.clientY-cy, dist=Math.hypot(dx,dy);
+    const m=Math.min(dist, 50);
+    const nx=(dx/dist||0)*m, ny=(dy/dist||0)*m;
+    knob.style.transform=`translate(${nx}px,${ny}px)`;
+    move={x:nx/50, y:ny/50};
+    if(dist>5) aim={x:dx/dist, y:dy/dist};
+    ws.send(JSON.stringify({t:"move", x:move.x, y:move.y}));
+};
+window.onpointerup=()=>{
+    drag=false; knob.style.transform="";
+    if(ws && ws.readyState===1) ws.send(JSON.stringify({t:"move",x:0,y:0}));
+};
+
+const fBtn = document.getElementById("fire");
+fBtn.onpointerdown=e=>{ 
+    if(isGameOver) return;
+    isFiring=true; fireCooldown=0; continuousShoot(); 
+    e.preventDefault(); 
+};
+window.onpointerup=()=>{ isFiring=false; };
+
+// --- ÁUDIO SINTÉTICO ---
 const Audio = {
     context: new (window.AudioContext || window.webkitAudioContext)(),
-    masterGain: null,
     isMuted: false,
-    init() {
-        this.masterGain = this.context.createGain();
-        this.masterGain.connect(this.context.destination);
+    async playSound(type, vol=1){
+        if(this.isMuted) return;
+        const ctx=this.context;
+        const osc=ctx.createOscillator(), gain=ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        gain.gain.setValueAtTime(vol, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+        
+        if(type==='shoot'){ osc.type='square'; osc.frequency.setValueAtTime(600, ctx.currentTime); }
+        if(type==='damage'){ osc.type='sawtooth'; osc.frequency.setValueAtTime(120, ctx.currentTime); }
+        if(type==='death'){ osc.type='sine'; osc.frequency.setValueAtTime(60, ctx.currentTime); gain.gain.setTargetAtTime(0, ctx.currentTime, 0.5); }
+        if(type==='victory'){ osc.type='sine'; osc.frequency.setValueAtTime(800, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime+0.2); }
+        
+        osc.start(); osc.stop(ctx.currentTime + 0.3);
     },
-    playSound(key, volume = 1.0) {
-        if (this.isMuted || !Assets.audioBuffers[key]) return;
-        const buffer = Assets.audioBuffers[key];
-        const source = this.context.createBufferSource();
-        source.buffer = buffer;
-        const gainNode = this.context.createGain();
-        gainNode.gain.value = volume;
-        source.connect(gainNode);
-        gainNode.connect(this.masterGain);
-        source.start(0);
-    },
-    toggleMute() {
-        this.isMuted = !this.isMuted;
-        this.masterGain.gain.value = this.isMuted ? 0 : 1;
+    toggleMute(){ 
+        this.isMuted = !this.isMuted; 
         document.getElementById('soundToggle').textContent = this.isMuted ? '🔇 Som OFF' : '🔊 Som ON';
     }
 };
-Audio.init();
 
-function selectColor(element) {
-    document.querySelectorAll('.colorOption').forEach(el => el.classList.remove('selected'));
-    element.classList.add('selected');
-    playerColor = element.dataset.color;
-}
+// --- RENDER ---
+function draw(){
+    ctx.clearRect(0,0,c.width,c.height);
+    if(!state || !myId || !state.players[myId]) return requestAnimationFrame(draw);
+    
+    const me = state.players[myId];
+    ctx.save();
+    ctx.translate(c.width/2 - me.x, c.height/2 - me.y);
+    
+    // Fundo
+    ctx.fillStyle='#2d3d2a'; ctx.fillRect(0,0,MAP_W,MAP_H);
+    
+    // Zona
+    ctx.fillStyle='rgba(255,0,0,0.2)';
+    ctx.fillRect(0,0,MAP_W,state.zone); ctx.fillRect(0,MAP_H-state.zone,MAP_W,state.zone);
+    ctx.fillRect(0,state.zone,state.zone,MAP_H-state.zone*2); ctx.fillRect(MAP_W-state.zone,state.zone,state.zone,MAP_H-state.zone*2);
 
+    // Porta
+    ctx.fillStyle=state.door.open?'#44f':'#666';
+    ctx.fillRect(state.door.x-25, state.door.y-25, 50, 50);
+    
+    // Items de Vida
+    state.lifes.forEach(l=>{
+        ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(l.x,l.y,10,0,7); ctx.fill();
+        ctx.fillStyle='#f00'; ctx.fillRect(l.x-2,l.y-8,4,16); ctx.fillRect(l.x-8,l.y-2,16,4);
+    });
 
-// --- MÓDULO DE RENDERIZAÇÃO (Desenho de CÍRCULOS - Sem Alterações) ---
-const Renderer = {
-    draw(timestamp) {
-        ctx.clearRect(0,0,c.width,c.height);
-        if(!state||!myId||!state.players[myId]){requestAnimationFrame(Renderer.draw);return;}
+    // Balas
+    state.bullets.forEach(b=>{
+        ctx.fillStyle=b.from==='e'?'#f44':'#fff';
+        ctx.beginPath(); ctx.arc(b.x,b.y,4,0,7); ctx.fill();
+    });
 
-        const me=state.players[myId];
-        ctx.save();
-        ctx.translate(c.width/2-me.x,c.height/2-me.y);
-        
-        ctx.fillStyle = '#4f6c4c'; 
-        ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT); 
+    // Inimigos
+    state.enemies.forEach(e=>{
+        ctx.fillStyle='#f1c40f'; ctx.beginPath(); ctx.arc(e.x,e.y,15,0,7); ctx.fill();
+        ctx.fillStyle='#000'; ctx.fillRect(e.x-15,e.y-25,30,4);
+        ctx.fillStyle='#f00'; ctx.fillRect(e.x-15,e.y-25,30*(e.hp/60),4);
+    });
 
-        Renderer.drawDoor(state.door);
-        Renderer.drawLifes(state.lifes);
-        Renderer.drawBullets(state.bullets);
-        Renderer.drawEnemies(state.enemies);
-        Renderer.drawPlayers(state.players, myId); 
-        Renderer.drawZone(state.zone);
-
-        ctx.restore(); 
-        
-        const zonePercent = Math.min(100, Math.floor((state.zone / (MAP_WIDTH / 2)) * 100));
-        const zoneMessage = zonePercent < 15 ? "FASE ABERTA" : `ZONA FECHANDO: ${zonePercent}%`;
-
-        document.getElementById("hud").innerHTML=
-            `HP: **${Math.floor(me.hp)}** | Kills: **${me.kills}**<br>${zoneMessage}`;
-
-        requestAnimationFrame(Renderer.draw);
-    },
-
-    drawPlayers(players, myId) {
-        for(const p of Object.values(players)){
-            if(p.hp <= 0 && p.status !== 'victory') continue; 
-
-            ctx.globalAlpha = p.alive ? 1.0 : 0.5; 
-            ctx.fillStyle = p.id === myId ? playerColor : "#f00"; 
-            
-            ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
-            ctx.globalAlpha = 1.0;
-
-            if(p.hp > 0 || p.id === myId){
-                ctx.fillStyle="rgba(0,0,0,.5)";
-                ctx.fillRect(p.x-22,p.y-28,44,6);
-                ctx.fillStyle="#22c55e";
-                ctx.fillRect(p.x-22,p.y-28,44*(p.hp/p.max),6);
-            }
-
-            ctx.textAlign = 'center';
-            ctx.fillStyle = p.id===myId?"#ffc":"#fff";
-            ctx.font = 'bold 12px Arial';
-            ctx.fillText(p.name, p.x, p.y - 35);
-        }
-    },
-
-    drawEnemies(enemies) {
-        enemies.forEach(e => {
-            ctx.fillStyle="#ff0";
-            ctx.beginPath();ctx.arc(e.x,e.y,14,0,Math.PI*2);ctx.fill();
-            ctx.fillStyle="rgba(0,0,0,.5)";
-            ctx.fillRect(e.x-15,e.y-22,30,4);
-            ctx.fillStyle="#f00";
-            ctx.fillRect(e.x-15,e.y-22,30*(e.hp/60),4); 
-        });
-    },
-
-    drawDoor(door) {
-        ctx.fillStyle=door.open?"#00f":"#888";
-        ctx.fillRect(door.x-20,door.y-30,40,60);
-        if(door.open){
-             ctx.fillStyle="#ffc";
-             ctx.textAlign = 'center';
-             ctx.fillText("SAÍDA", door.x, door.y + 10);
-        }
-    },
-
-    drawLifes(lifes) {
-        lifes.forEach(l => {
-            ctx.fillStyle="#fff";
-            ctx.beginPath();ctx.arc(l.x,l.y,12,0,Math.PI*2);ctx.fill();
-            ctx.fillStyle="#f00";
-            ctx.fillRect(l.x-2, l.y-8, 4, 16);
-            ctx.fillRect(l.x-8, l.y-2, 16, 4);
-        });
-    },
-
-    drawBullets(bullets) {
-        bullets.forEach(b=>{
-            ctx.fillStyle=b.from==="e"?"#ff4d6d":"#fff";
-            ctx.fillRect(b.x-2,b.y-2,4,4);
-        });
-    },
-
-    drawZone(zone) {
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.15)'; 
-        ctx.fillRect(0, 0, MAP_WIDTH, zone); 
-        ctx.fillRect(0, MAP_HEIGHT - zone, MAP_WIDTH, zone); 
-        ctx.fillRect(0, zone, zone, MAP_HEIGHT - 2 * zone);
-        ctx.fillRect(MAP_WIDTH - zone, zone, zone, MAP_HEIGHT - 2 * zone);
+    // Jogadores
+    for(let id in state.players){
+        const p = state.players[id];
+        if(!p.alive && p.status !== 'victory') continue;
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x,p.y,18,0,7); ctx.fill();
+        ctx.fillStyle='#fff'; ctx.font='12px Arial'; ctx.textAlign='center';
+        ctx.fillText(p.name, p.x, p.y-30);
+        ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(p.x-20,p.y-25,40,5);
+        ctx.fillStyle='#2ecc71'; ctx.fillRect(p.x-20,p.y-25,40*(p.hp/100),5);
     }
-};
-
-// --- PONTO DE ENTRADA FINAL ---
-Assets.loadAll(() => {
-    requestAnimationFrame(Renderer.draw);
-});
+    
+    ctx.restore();
+    
+    document.getElementById('hud').innerHTML = `HP: ${Math.floor(me.hp)} | MORTES: ${me.kills}`;
+    requestAnimationFrame(draw);
+}
+draw();
 </script>
 </body>
 </html>
-

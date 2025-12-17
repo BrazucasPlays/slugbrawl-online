@@ -66,7 +66,7 @@ const MAP_WIDTH = 1800;
 const MAP_HEIGHT = 1000;
 let lastPlayerHp = 100;
 let isGameOver = false;
-let playerColor = "#22c55e"; // Cor padrão inicial (Verde)
+let playerColor = "#22c55e"; 
 
 
 // --- FUNÇÃO DE SELEÇÃO DE COR NO MENU ---
@@ -76,7 +76,7 @@ function selectColor(element) {
     playerColor = element.dataset.color;
 }
 
-// --- FUNÇÕES DE ÁUDIO SINTÉTICO (para estabilidade) ---
+// --- FUNÇÕES DE ÁUDIO SINTÉTICO ---
 function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
     const sampleRate = 44100;
     const numSamples = sampleRate * duration;
@@ -151,16 +151,10 @@ function join(){
   document.getElementById("fire").style.display="block";
 }
 
-// CORREÇÃO AQUI: Garante que o reset e o novo join ocorram em sequência
 function restartGame(){
-    // 1. Envia a mensagem para o servidor deletar a sala atual.
     ws.send(JSON.stringify({t:"reset"})); 
-
-    // 2. Limpa o ID do jogador local para forçar a criação de um novo.
     myId = null; 
-    
-    // 3. Aguarda um curto período de tempo para garantir que a mensagem de reset chegue ao servidor
-    // e chama join() para o servidor criar a nova sala e o novo player.
+    // Garante que o servidor tenha tempo de deletar a sala antes de tentar entrar
     setTimeout(join, 100); 
 }
 
@@ -218,7 +212,7 @@ ws.onmessage=e=>{
   }
 };
 
-// --- CONTROLES (Joystick) ---
+// --- CONTROLES (Joystick Corrigido) ---
 const joy=document.getElementById("joy");
 const knob=document.getElementById("knob");
 let center={x:0,y:0},drag=false,MAX=50;
@@ -242,10 +236,12 @@ joy.onpointermove=e=>{
   const nx=(dx/d||0)*m,ny=(dy/d||0)*m;
   knob.style.transform=`translate(${nx}px,${ny}px)`;
   
-  // CORREÇÃO DE PRECISÃO
-  move.x=dx/MAX; move.y=dy/MAX;
-  
-  if (d > MAX) {
+  // Lógica de Movimento Normalizada (Corrigida)
+  if (d <= MAX) {
+      move.x = dx / MAX;
+      move.y = dy / MAX;
+  } 
+  else {
       move.x = dx / d;
       move.y = dy / d;
   }
@@ -274,7 +270,6 @@ document.getElementById("fire").onclick=()=>{
 const Renderer = {
     draw(timestamp) {
         ctx.clearRect(0,0,c.width,c.height);
-        // Garante que a tela fica vazia enquanto o novo jogador está sendo criado
         if(!state||!myId||!state.players[myId]){requestAnimationFrame(Renderer.draw);return;}
 
         const me=state.players[myId];
@@ -304,17 +299,16 @@ const Renderer = {
 
     drawPlayers(players, myId) {
         for(const p of Object.values(players)){
+            // Verifica se o jogador está vivo ou se acabou de ganhar (para desenhar na porta)
             if(p.hp <= 0 && p.status !== 'victory') continue; 
 
-            // CÍRCULO DO PLAYER: Usa a cor escolhida pelo player (variável global)
             ctx.globalAlpha = p.alive ? 1.0 : 0.5; 
-            ctx.fillStyle = p.id === myId ? playerColor : "#f00"; // Jogador local usa 'playerColor'
+            // Usa a cor do jogador se for o local, ou o padrão se for um inimigo (ou outro player)
+            ctx.fillStyle = p.id === myId ? playerColor : "#f00"; 
             
-            // Desenha CÍRCULO
             ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
             ctx.globalAlpha = 1.0;
 
-            // HP bar
             if(p.hp > 0 || p.id === myId){
                 ctx.fillStyle="rgba(0,0,0,.5)";
                 ctx.fillRect(p.x-22,p.y-28,44,6);
@@ -322,7 +316,6 @@ const Renderer = {
                 ctx.fillRect(p.x-22,p.y-28,44*(p.hp/p.max),6);
             }
 
-            // Nome
             ctx.textAlign = 'center';
             ctx.fillStyle = p.id===myId?"#ffc":"#fff";
             ctx.font = 'bold 12px Arial';
@@ -334,7 +327,6 @@ const Renderer = {
         enemies.forEach(e => {
             ctx.fillStyle="#ff0";
             ctx.beginPath();ctx.arc(e.x,e.y,14,0,Math.PI*2);ctx.fill();
-            // HP bar
             ctx.fillStyle="rgba(0,0,0,.5)";
             ctx.fillRect(e.x-15,e.y-22,30,4);
             ctx.fillStyle="#f00";

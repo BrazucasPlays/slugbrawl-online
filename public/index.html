@@ -8,13 +8,11 @@ body{
     background:#000;
     color:#fff;
     font-family:Arial;
-    /* CORREÇÃO DO BUG DE TOQUE LONGO NO CELULAR */
-    /* Impede que o toque seja interpretado como seleção de texto */
     -webkit-user-select: none; 
     -moz-user-select: none;
     -ms-user-select: none;
     user-select: none;
-    touch-action: none; /* Ajuda a prevenir o menu de contexto */
+    touch-action: none; 
 }
 canvas{display:block}
 #menu, #endMenu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index: 100; opacity: 1; transition: opacity 0.5s;}
@@ -23,6 +21,12 @@ input,button{width:100%;margin-top:10px;padding:12px;border-radius:8px;border:no
 button{background:#ffc;color:#000;font-weight:bold}
 #hud{position:fixed;top:10px;left:10px;font-weight:bold; color: #fff; text-shadow: 1px 1px 2px #000;}
 #soundToggle{position:fixed;top:10px;right:10px;padding:10px;background:#333;color:#fff;border-radius:8px;cursor:pointer}
+
+/* Estilos para Validação de Nome */
+.input-error {
+    border: 2px solid #f00 !important;
+    box-shadow: 0 0 5px #f00;
+}
 
 /* Estilos de Seleção de Jogador */
 #playerSelect{margin: 15px 0 10px 0; display: flex; justify-content: space-around;}
@@ -80,7 +84,10 @@ const MAP_HEIGHT = 1000;
 let lastPlayerHp = 100;
 let isGameOver = false;
 let playerColor = "#22c55e"; 
-let savedKills = 0; // Variável para salvar as mortes da última rodada
+let savedKills = 0; 
+
+// --- VARIÁVEL GLOBAL DO WEBSOCKET PARA PERMITIR RECONEXÃO ---
+let ws; 
 
 // --- FUNÇÃO DE SELEÇÃO DE COR NO MENU ---
 function selectColor(element) {
@@ -144,46 +151,88 @@ const Audio = {
 };
 Audio.init();
 
-// --- LÓGICA DE WEBSOCKET E JOGO ---
-const ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
+// --- FUNÇÃO QUE CONECTA/RECONECTA O WEBSOCKET ---
+function connectWebSocket(callback) {
+    // Se a conexão existir e estiver aberta, apenas retorna
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        callback();
+        return;
+    }
+
+    // Se a conexão existir, mas não estiver fechada, força o fechamento
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.CLOSING)) {
+        ws.close();
+    }
+    
+    // CRIA NOVA CONEXÃO
+    ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
+    
+    ws.onopen = () => {
+        console.log("WebSocket conectado.");
+        ws.onmessage = handleWebSocketMessage;
+        callback(); // Chama join() ou outra função após a conexão
+    };
+
+    ws.onerror = (error) => {
+        console.error("WebSocket Error: ", error);
+        alert("Erro de conexão com o servidor.");
+    };
+}
+
+
 let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
 
 function join(){
   const nameInput = document.getElementById("name");
   const errorMsg = document.getElementById("errorMsg");
 
-  // VALIDAÇÃO: Não permite entrada com nome vazio
+  // VALIDAÇÃO APERFEIÇOADA: Adiciona classe visual
   if (nameInput.value.trim() === "") {
       errorMsg.style.display = "block";
+      nameInput.classList.add('input-error');
       nameInput.focus();
       return;
   }
   errorMsg.style.display = "none";
-  
-  Audio.context.resume(); 
-  roomKey=document.getElementById("room").value||"solo";
-  ws.send(JSON.stringify({
-    t:"join",
-    name:nameInput.value,
-    room:roomKey,
-    color: playerColor 
-  }));
-  document.getElementById("menu").style.display="none"; 
-  isGameOver = false;
-  document.getElementById("endMenu").style.display="none"; 
-  document.getElementById("joy").style.display="block";
-  document.getElementById("fire").style.display="block";
+  nameInput.classList.remove('input-error');
+
+  // Conecta e depois envia a mensagem de join
+  connectWebSocket(() => {
+    Audio.context.resume(); 
+    roomKey=document.getElementById("room").value||"solo";
+    ws.send(JSON.stringify({
+      t:"join",
+      name:nameInput.value,
+      room:roomKey,
+      color: playerColor 
+    }));
+    document.getElementById("menu").style.display="none"; 
+    isGameOver = false;
+    document.getElementById("endMenu").style.display="none"; 
+    document.getElementById("joy").style.display="block";
+    document.getElementById("fire").style.display="block";
+  });
 }
 
-// CORREÇÃO: Salva as mortes antes de pedir o reset
 function restartGame(){
     if(myId && state && state.players[myId]){
-        savedKills = state.players[myId].kills; // Salva as Kills atuais
+        savedKills = state.players[myId].kills; 
     }
     
-    ws.send(JSON.stringify({t:"reset"})); 
+    // 1. Envia a mensagem para o servidor deletar o mapa
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({t:"reset"})); 
+    }
+    
+    // 2. Fecha a conexão atual para forçar um reset completo no cliente
+    if (ws) {
+        ws.close();
+    }
+    
     myId = null; 
-    setTimeout(join, 100); 
+    
+    // 3. Aguarda e chama join(), que irá reconectar
+    setTimeout(join, 200); 
 }
 
 function showEndMenu(status, kills){
@@ -195,7 +244,6 @@ function showEndMenu(status, kills){
     const stats = document.getElementById("endStats");
     let message = "";
 
-    // Usa as kills passadas para exibir
     const killsToDisplay = kills || savedKills; 
     
     if (status === 'victory') {
@@ -218,30 +266,29 @@ function showEndMenu(status, kills){
     }, 10); 
 }
 
-
-ws.onmessage=e=>{
-  const m=JSON.parse(e.data);
-  if(m.t==="you"){
-    myId=m.id;
-    lastPlayerHp = m.lastHp;
-  }
-  if(m.t==="state"){
-    state=m.rooms[roomKey];
-    if(!state) return;
-
-    if(myId && state.players[myId]) {
-      const me = state.players[myId];
-      
-      if(me.status && !isGameOver){
-          showEndMenu(me.status, me.kills);
-      }
-      
-      if(me.hp < lastPlayerHp && me.hp > 0) { Audio.playSound('damage_sound', 0.8); } 
-      else if (me.hp > lastPlayerHp) { Audio.playSound('heal_sound', 0.7); }
-      lastPlayerHp = me.hp;
+function handleWebSocketMessage(e) {
+    const m=JSON.parse(e.data);
+    if(m.t==="you"){
+        myId=m.id;
+        lastPlayerHp = m.lastHp;
     }
-  }
-};
+    if(m.t==="state"){
+        state=m.rooms[roomKey];
+        if(!state) return;
+
+        if(myId && state.players[myId]) {
+            const me = state.players[myId];
+            
+            if(me.status && !isGameOver){
+                showEndMenu(me.status, me.kills);
+            }
+            
+            if(me.hp < lastPlayerHp && me.hp > 0) { Audio.playSound('damage_sound', 0.8); } 
+            else if (me.hp > lastPlayerHp) { Audio.playSound('heal_sound', 0.7); }
+            lastPlayerHp = me.hp;
+        }
+    }
+}
 
 // --- CONTROLES (Joystick Corrigido) ---
 const joy=document.getElementById("joy");
@@ -255,7 +302,6 @@ joy.onpointerdown=e=>{
   center.x=r.left+r.width/2;
   center.y=r.top+r.height/2;
   drag=true;
-  // Previne o menu de contexto/seleção de texto no celular ao iniciar o toque
   e.preventDefault(); 
 };
 
@@ -269,7 +315,6 @@ joy.onpointermove=e=>{
   const nx=(dx/d||0)*m,ny=(dy/d||0)*m;
   knob.style.transform=`translate(${nx}px,${ny}px)`;
   
-  // Lógica de Movimento Normalizada
   move.x = dx / MAX;
   move.y = dy / MAX;
 
@@ -277,8 +322,9 @@ joy.onpointermove=e=>{
   aim.x=move.x/L; aim.y=move.y/L;
   
   const factor = Math.min(1, L);
-  ws.send(JSON.stringify({t:"move",x:move.x*factor,y:move.y*factor}));
-  // Previne o menu de contexto/seleção de texto no celular ao mover
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({t:"move",x:move.x*factor,y:move.y*factor}));
+  }
   e.preventDefault(); 
 };
 
@@ -286,13 +332,18 @@ joy.onpointerup=()=>{
   if(isGameOver) return;
   drag=false; knob.style.transform="";
   move.x=move.y=0;
-  ws.send(JSON.stringify({t:"move",x:0,y:0}));
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({t:"move",x:0,y:0}));
+  }
 };
 
+// CORREÇÃO: Usa 'onclick' (ou 'ontouchend' se for puramente móvel) para garantir disparo único
 document.getElementById("fire").onclick=()=>{
   if(isGameOver) return;
   Audio.playSound('shoot_sound', 0.5); 
-  ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
+  }
 };
 
 
@@ -400,6 +451,7 @@ const Renderer = {
 
 // --- PONTO DE ENTRADA FINAL ---
 Assets.loadAll(() => {
+    // Não conecta o WS aqui, espera o 'join'
     requestAnimationFrame(Renderer.draw);
 });
 </script>

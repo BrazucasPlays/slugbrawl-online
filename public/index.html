@@ -89,7 +89,7 @@ let savedKills = 0;
 // --- Variáveis de TIRO CONTÍNUO ---
 let isFiring = false;
 let fireCooldown = 0; 
-const FIRE_RATE = 5; // A cada 5 frames (aproximadamente 250ms), um tiro é enviado
+const FIRE_RATE = 5; 
 
 // --- WEBSOCKET ---
 let ws; 
@@ -98,18 +98,14 @@ let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
 // --- FUNÇÃO DE TIRO CONTÍNUO ---
 function continuousShoot() {
     if (!isFiring || isGameOver) return;
-
-    // Se o cooldown acabou, atira e reseta o cooldown
     if (fireCooldown <= 0) {
         Audio.playSound('shoot_sound', 0.5); 
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
         }
-        fireCooldown = FIRE_RATE; // Reseta o cooldown
+        fireCooldown = FIRE_RATE; 
     }
-
     fireCooldown = Math.max(0, fireCooldown - 1);
-    // Chama a função novamente no próximo frame de animação
     requestAnimationFrame(continuousShoot); 
 }
 
@@ -152,6 +148,9 @@ function join(){
   }
   errorMsg.style.display = "none";
   nameInput.classList.remove('input-error');
+  
+  // ZERA AS KILLS AO INICIAR UM NOVO JOGO (previne bugs visuais)
+  savedKills = 0;
 
   connectWebSocket(() => {
     Audio.context.resume(); 
@@ -170,34 +169,36 @@ function join(){
   });
 }
 
-// CORREÇÃO DE REINÍCIO COMPLETO
+// FUNÇÃO CRÍTICA: REINÍCIO COMPLETO DO JOGO
 function restartGame(){
+    
+    // 1. Salva a pontuação final antes do reset para o End Menu
     if(myId && state && state.players[myId]){
         savedKills = state.players[myId].kills; 
     }
     
-    // 1. Envia a mensagem para o servidor deletar o mapa
+    // 2. Envia o comando de reset para o servidor (deletar a sala)
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({t:"reset"})); 
     }
     
-    // 2. Fecha a conexão atual para forçar um reset completo no cliente
+    // 3. Fecha a conexão atual (impede o cliente de receber o estado da sala antiga)
     if (ws) {
         ws.close();
     }
     
-    // 3. Reseta o estado do cliente
+    // 4. Reseta o estado do cliente local
     myId = null; 
     state = null;
-    isGameOver = true; // Impede input enquanto reinicia
+    isGameOver = true; 
     
-    // 4. Aguarda e chama join(), que irá reconectar e criar um mapa novo
-    setTimeout(join, 250); // Delay maior para garantir a limpeza do estado
+    // 5. Reconecta após um delay de 500ms para garantir que a sala foi deletada
+    setTimeout(join, 500); 
 }
 
 function showEndMenu(status, kills){
     isGameOver = true;
-    isFiring = false; // Garante que o tiro para
+    isFiring = false; 
     document.getElementById("joy").style.display="none";
     document.getElementById("fire").style.display="none";
     
@@ -251,7 +252,7 @@ function handleWebSocketMessage(e) {
     }
 }
 
-// --- CONTROLES (Joystick Corrigido) ---
+// --- CONTROLES (Sem Alterações) ---
 const joy=document.getElementById("joy");
 const knob=document.getElementById("knob");
 let center={x:0,y:0},drag=false,MAX=50;
@@ -299,32 +300,29 @@ joy.onpointerup=()=>{
 };
 
 
-// --- CONTROLES DE TIRO CONTÍNUO ---
+// --- CONTROLES DE TIRO CONTÍNUO (Sem Alterações) ---
 const fireButton = document.getElementById("fire");
 
-// Ao pressionar/tocar, inicia o ciclo de tiro
 fireButton.onpointerdown = (e) => {
   if (isGameOver) return;
   if (!isFiring) {
     isFiring = true;
-    fireCooldown = 0; // Garante que o primeiro tiro é imediato
+    fireCooldown = 0; 
     continuousShoot();
   }
   e.preventDefault(); 
 };
 
-// Ao soltar/levantar o dedo, para o ciclo de tiro
 fireButton.onpointerup = () => {
   isFiring = false;
 };
 
-// Se o dedo deslizar para fora do botão, para o ciclo
 fireButton.onpointerleave = () => {
   isFiring = false;
 };
 
 
-// --- FUNÇÕES DE ÁUDIO SINTÉTICO (SEM ALTERAÇÕES) ---
+// --- FUNÇÕES AUXILIARES (Áudio/Renderer - Sem Alterações) ---
 function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
     const sampleRate = 44100;
     const numSamples = sampleRate * duration;
@@ -386,7 +384,7 @@ function selectColor(element) {
 }
 
 
-// --- MÓDULO DE RENDERIZAÇÃO (Desenho de CÍRCULOS - SEM ALTERAÇÕES) ---
+// --- MÓDULO DE RENDERIZAÇÃO (Desenho de CÍRCULOS - Sem Alterações) ---
 const Renderer = {
     draw(timestamp) {
         ctx.clearRect(0,0,c.width,c.height);

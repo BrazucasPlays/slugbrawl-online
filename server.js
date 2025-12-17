@@ -48,9 +48,11 @@ wss.on("connection",ws=>{
         max:100,
         kills:0,
         ix:0, iy:0,
-        alive: true, // Novo estado
-        status: null // victory, death
+        alive: true,
+        status: null,
+        color: m.color || "#22c55e" // Armazena a cor
       };
+      // Envia o novo ID e o HP base para o cliente
       ws.send(JSON.stringify({t:"you",id:pid, lastHp: 100})); 
       return;
     }
@@ -71,21 +73,26 @@ wss.on("connection",ws=>{
     }
 
     if(m.t==="reset"){
+      // Deleta a sala para que um novo 'join' crie um mapa limpo
       delete rooms[rid];
+      // Não retorna o pid para garantir que o cliente precise de um novo
     }
   });
 
   ws.on("close",()=>{
     if(rid && pid){
       const r=getRoom(rid);
-      delete r.players[pid];
+      // Remove o player da sala
+      if (r && r.players) {
+        delete r.players[pid];
+      }
     }
   });
 });
 
 setInterval(()=>{
   for(const r of Object.values(rooms)){
-    r.zone += 0.2; // A fase fecha 0.2 unidades a cada 50ms
+    r.zone += 0.2; 
 
     // Spawn de Inimigos e Vidas
     if(Math.random()<0.03){
@@ -97,15 +104,15 @@ setInterval(()=>{
     }
 
     for(const p of Object.values(r.players)){
-      if(!p.alive) continue; // Player morto não se move
+      if(!p.alive) continue; 
 
-      // Movimento (5x mais rápido)
-      p.x += p.ix * 5; 
-      p.y += p.iy * 5; 
+      // Movimento (7x mais rápido)
+      p.x += p.ix * 7; 
+      p.y += p.iy * 7; 
 
       // Dano da Zona
       if(p.x<r.zone || p.y<r.zone || p.x>MAP.w-r.zone || p.y>MAP.h-r.zone){
-        p.hp -= 0.8; // Aumentei o dano da zona
+        p.hp -= 0.8; 
       }
 
       // Checagem de Status
@@ -130,7 +137,7 @@ setInterval(()=>{
       e.cd = Math.max(0, e.cd-1);
       let target=null, best=99999;
       for(const p of Object.values(r.players)){
-        if(p.hp<=0 || !p.alive) continue; // Alvo deve estar vivo
+        if(p.hp<=0 || !p.alive) continue; 
         const d = dist(e.x,e.y,p.x,p.y);
         if(d<best){best=d; target=p;}
       }
@@ -165,7 +172,7 @@ setInterval(()=>{
 
       if(b.from==="e"){
         for(const p of Object.values(r.players)){
-          if(p.alive && dist(b.x,b.y,p.x,p.y)<18){ // Atinge apenas se estiver vivo
+          if(p.alive && dist(b.x,b.y,p.x,p.y)<18){ 
             p.hp-=14; b.life=0;
             if(p.hp<0) p.hp=0;
             break;

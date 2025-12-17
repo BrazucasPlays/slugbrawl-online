@@ -86,91 +86,51 @@ let isGameOver = false;
 let playerColor = "#22c55e"; 
 let savedKills = 0; 
 
-// --- VARIÁVEL GLOBAL DO WEBSOCKET PARA PERMITIR RECONEXÃO ---
+// --- Variáveis de TIRO CONTÍNUO ---
+let isFiring = false;
+let fireCooldown = 0; 
+const FIRE_RATE = 5; // A cada 5 frames (aproximadamente 250ms), um tiro é enviado
+
+// --- WEBSOCKET ---
 let ws; 
+let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
 
-// --- FUNÇÃO DE SELEÇÃO DE COR NO MENU ---
-function selectColor(element) {
-    document.querySelectorAll('.colorOption').forEach(el => el.classList.remove('selected'));
-    element.classList.add('selected');
-    playerColor = element.dataset.color;
+// --- FUNÇÃO DE TIRO CONTÍNUO ---
+function continuousShoot() {
+    if (!isFiring || isGameOver) return;
+
+    // Se o cooldown acabou, atira e reseta o cooldown
+    if (fireCooldown <= 0) {
+        Audio.playSound('shoot_sound', 0.5); 
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
+        }
+        fireCooldown = FIRE_RATE; // Reseta o cooldown
+    }
+
+    fireCooldown = Math.max(0, fireCooldown - 1);
+    // Chama a função novamente no próximo frame de animação
+    requestAnimationFrame(continuousShoot); 
 }
 
-// --- FUNÇÕES DE ÁUDIO SINTÉTICO ---
-function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
-    const sampleRate = 44100;
-    const numSamples = sampleRate * duration;
-    const buffer = Audio.context.createBuffer(1, numSamples, sampleRate);
-    const data = buffer.getChannelData(0);
 
-    for (let i = 0; i < numSamples; i++) {
-        const time = i / sampleRate;
-        const volume = Math.exp(-time / decay);
-        let sample;
-        if (type === 'sine') { sample = Math.sin(2 * Math.PI * freq * time); } 
-        else if (type === 'square') { sample = Math.sign(Math.sin(2 * Math.PI * freq * time)); } 
-        else { sample = Math.random() * 2 - 1; }
-        data[i] = sample * volume;
-    }
-    return buffer;
-}
-
-const Assets = { audioBuffers: {}, loadAll(callback) {
-    this.audioBuffers.shoot_sound = generateSynthAudio(800, 0.08, 'square', 0.05);
-    this.audioBuffers.damage_sound = generateSynthAudio(150, 0.2, 'sine', 0.1);
-    this.audioBuffers.heal_sound = generateSynthAudio(1200, 0.15, 'sine', 0.08);
-    this.audioBuffers.death_sound = generateSynthAudio(60, 0.5, 'square', 0.2);
-    this.audioBuffers.victory_sound = generateSynthAudio(1500, 0.3, 'sine', 0.2);
-    callback();
-}};
-
-const Audio = {
-    context: new (window.AudioContext || window.webkitAudioContext)(),
-    masterGain: null,
-    isMuted: false,
-    init() {
-        this.masterGain = this.context.createGain();
-        this.masterGain.connect(this.context.destination);
-    },
-    playSound(key, volume = 1.0) {
-        if (this.isMuted || !Assets.audioBuffers[key]) return;
-        const buffer = Assets.audioBuffers[key];
-        const source = this.context.createBufferSource();
-        source.buffer = buffer;
-        const gainNode = this.context.createGain();
-        gainNode.gain.value = volume;
-        source.connect(gainNode);
-        gainNode.connect(this.masterGain);
-        source.start(0);
-    },
-    toggleMute() {
-        this.isMuted = !this.isMuted;
-        this.masterGain.gain.value = this.isMuted ? 0 : 1;
-        document.getElementById('soundToggle').textContent = this.isMuted ? '🔇 Som OFF' : '🔊 Som ON';
-    }
-};
-Audio.init();
-
-// --- FUNÇÃO QUE CONECTA/RECONECTA O WEBSOCKET ---
+// --- LÓGICA DE WEBSOCKET E JOGO ---
 function connectWebSocket(callback) {
-    // Se a conexão existir e estiver aberta, apenas retorna
     if (ws && ws.readyState === WebSocket.OPEN) {
         callback();
         return;
     }
 
-    // Se a conexão existir, mas não estiver fechada, força o fechamento
-    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.CLOSING)) {
+    if (ws) {
         ws.close();
     }
     
-    // CRIA NOVA CONEXÃO
     ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.hostname);
     
     ws.onopen = () => {
         console.log("WebSocket conectado.");
         ws.onmessage = handleWebSocketMessage;
-        callback(); // Chama join() ou outra função após a conexão
+        callback(); 
     };
 
     ws.onerror = (error) => {
@@ -180,13 +140,10 @@ function connectWebSocket(callback) {
 }
 
 
-let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
-
 function join(){
   const nameInput = document.getElementById("name");
   const errorMsg = document.getElementById("errorMsg");
 
-  // VALIDAÇÃO APERFEIÇOADA: Adiciona classe visual
   if (nameInput.value.trim() === "") {
       errorMsg.style.display = "block";
       nameInput.classList.add('input-error');
@@ -196,7 +153,6 @@ function join(){
   errorMsg.style.display = "none";
   nameInput.classList.remove('input-error');
 
-  // Conecta e depois envia a mensagem de join
   connectWebSocket(() => {
     Audio.context.resume(); 
     roomKey=document.getElementById("room").value||"solo";
@@ -214,6 +170,7 @@ function join(){
   });
 }
 
+// CORREÇÃO DE REINÍCIO COMPLETO
 function restartGame(){
     if(myId && state && state.players[myId]){
         savedKills = state.players[myId].kills; 
@@ -229,14 +186,18 @@ function restartGame(){
         ws.close();
     }
     
+    // 3. Reseta o estado do cliente
     myId = null; 
+    state = null;
+    isGameOver = true; // Impede input enquanto reinicia
     
-    // 3. Aguarda e chama join(), que irá reconectar
-    setTimeout(join, 200); 
+    // 4. Aguarda e chama join(), que irá reconectar e criar um mapa novo
+    setTimeout(join, 250); // Delay maior para garantir a limpeza do estado
 }
 
 function showEndMenu(status, kills){
     isGameOver = true;
+    isFiring = false; // Garante que o tiro para
     document.getElementById("joy").style.display="none";
     document.getElementById("fire").style.display="none";
     
@@ -337,17 +298,95 @@ joy.onpointerup=()=>{
   }
 };
 
-// CORREÇÃO: Usa 'onclick' (ou 'ontouchend' se for puramente móvel) para garantir disparo único
-document.getElementById("fire").onclick=()=>{
-  if(isGameOver) return;
-  Audio.playSound('shoot_sound', 0.5); 
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({t:"shoot",ax:aim.x,ay:aim.y}));
+
+// --- CONTROLES DE TIRO CONTÍNUO ---
+const fireButton = document.getElementById("fire");
+
+// Ao pressionar/tocar, inicia o ciclo de tiro
+fireButton.onpointerdown = (e) => {
+  if (isGameOver) return;
+  if (!isFiring) {
+    isFiring = true;
+    fireCooldown = 0; // Garante que o primeiro tiro é imediato
+    continuousShoot();
   }
+  e.preventDefault(); 
+};
+
+// Ao soltar/levantar o dedo, para o ciclo de tiro
+fireButton.onpointerup = () => {
+  isFiring = false;
+};
+
+// Se o dedo deslizar para fora do botão, para o ciclo
+fireButton.onpointerleave = () => {
+  isFiring = false;
 };
 
 
-// --- MÓDULO DE RENDERIZAÇÃO (Desenho de CÍRCULOS) ---
+// --- FUNÇÕES DE ÁUDIO SINTÉTICO (SEM ALTERAÇÕES) ---
+function generateSynthAudio(freq, duration, type='sine', decay=0.5) {
+    const sampleRate = 44100;
+    const numSamples = sampleRate * duration;
+    const buffer = Audio.context.createBuffer(1, numSamples, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < numSamples; i++) {
+        const time = i / sampleRate;
+        const volume = Math.exp(-time / decay);
+        let sample;
+        if (type === 'sine') { sample = Math.sin(2 * Math.PI * freq * time); } 
+        else if (type === 'square') { sample = Math.sign(Math.sin(2 * Math.PI * freq * time)); } 
+        else { sample = Math.random() * 2 - 1; }
+        data[i] = sample * volume;
+    }
+    return buffer;
+}
+
+const Assets = { audioBuffers: {}, loadAll(callback) {
+    this.audioBuffers.shoot_sound = generateSynthAudio(800, 0.08, 'square', 0.05);
+    this.audioBuffers.damage_sound = generateSynthAudio(150, 0.2, 'sine', 0.1);
+    this.audioBuffers.heal_sound = generateSynthAudio(1200, 0.15, 'sine', 0.08);
+    this.audioBuffers.death_sound = generateSynthAudio(60, 0.5, 'square', 0.2);
+    this.audioBuffers.victory_sound = generateSynthAudio(1500, 0.3, 'sine', 0.2);
+    callback();
+}};
+
+const Audio = {
+    context: new (window.AudioContext || window.webkitAudioContext)(),
+    masterGain: null,
+    isMuted: false,
+    init() {
+        this.masterGain = this.context.createGain();
+        this.masterGain.connect(this.context.destination);
+    },
+    playSound(key, volume = 1.0) {
+        if (this.isMuted || !Assets.audioBuffers[key]) return;
+        const buffer = Assets.audioBuffers[key];
+        const source = this.context.createBufferSource();
+        source.buffer = buffer;
+        const gainNode = this.context.createGain();
+        gainNode.gain.value = volume;
+        source.connect(gainNode);
+        gainNode.connect(this.masterGain);
+        source.start(0);
+    },
+    toggleMute() {
+        this.isMuted = !this.isMuted;
+        this.masterGain.gain.value = this.isMuted ? 0 : 1;
+        document.getElementById('soundToggle').textContent = this.isMuted ? '🔇 Som OFF' : '🔊 Som ON';
+    }
+};
+Audio.init();
+
+function selectColor(element) {
+    document.querySelectorAll('.colorOption').forEach(el => el.classList.remove('selected'));
+    element.classList.add('selected');
+    playerColor = element.dataset.color;
+}
+
+
+// --- MÓDULO DE RENDERIZAÇÃO (Desenho de CÍRCULOS - SEM ALTERAÇÕES) ---
 const Renderer = {
     draw(timestamp) {
         ctx.clearRect(0,0,c.width,c.height);
@@ -451,9 +490,9 @@ const Renderer = {
 
 // --- PONTO DE ENTRADA FINAL ---
 Assets.loadAll(() => {
-    // Não conecta o WS aqui, espera o 'join'
     requestAnimationFrame(Renderer.draw);
 });
 </script>
 </body>
 </html>
+

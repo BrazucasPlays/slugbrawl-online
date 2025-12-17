@@ -49,7 +49,7 @@ button{background:#ffc;color:#000;font-weight:bold}
         <h3 id="endTitle">FIM DE JOGO</h3>
         <div id="endStats"></div>
         <button onclick="restartGame()">REINICIAR</button>
-        <p style="font-size: 0.8em; margin-top: 15px;">(Você voltará para a sala atual, mas o mapa será resetado)</p>
+        <p style="font-size: 0.8em; margin-top: 15px;">(O mapa será resetado)</p>
     </div>
 </div>
 
@@ -142,8 +142,6 @@ function join(){
     t:"join",
     name:document.getElementById("name").value,
     room:roomKey,
-    // A cor é enviada apenas para ser persistente no servidor, se necessário,
-    // mas o Client principal usa a variável local 'playerColor' para desenhar.
     color: playerColor 
   }));
   document.getElementById("menu").style.display="none"; 
@@ -153,9 +151,17 @@ function join(){
   document.getElementById("fire").style.display="block";
 }
 
+// CORREÇÃO AQUI: Garante que o reset e o novo join ocorram em sequência
 function restartGame(){
+    // 1. Envia a mensagem para o servidor deletar a sala atual.
     ws.send(JSON.stringify({t:"reset"})); 
-    join(); 
+
+    // 2. Limpa o ID do jogador local para forçar a criação de um novo.
+    myId = null; 
+    
+    // 3. Aguarda um curto período de tempo para garantir que a mensagem de reset chegue ao servidor
+    // e chama join() para o servidor criar a nova sala e o novo player.
+    setTimeout(join, 100); 
 }
 
 function showEndMenu(status, kills){
@@ -212,7 +218,7 @@ ws.onmessage=e=>{
   }
 };
 
-// --- CONTROLES (Revisão de Precisão do Joystick) ---
+// --- CONTROLES (Joystick) ---
 const joy=document.getElementById("joy");
 const knob=document.getElementById("knob");
 let center={x:0,y:0},drag=false,MAX=50;
@@ -236,16 +242,14 @@ joy.onpointermove=e=>{
   const nx=(dx/d||0)*m,ny=(dy/d||0)*m;
   knob.style.transform=`translate(${nx}px,${ny}px)`;
   
-  // CORREÇÃO DE PRECISÃO: Garante que move.x e move.y estejam sempre entre -1 e 1
+  // CORREÇÃO DE PRECISÃO
   move.x=dx/MAX; move.y=dy/MAX;
   
-  // Limita o movimento ao círculo do joystick para não exceder 1 (se d > MAX)
   if (d > MAX) {
       move.x = dx / d;
       move.y = dy / d;
   }
   
-  // Direção de mira (é o mesmo que o movimento)
   const L=Math.hypot(move.x,move.y)||1;
   aim.x=move.x/L; aim.y=move.y/L;
   
@@ -266,11 +270,12 @@ document.getElementById("fire").onclick=()=>{
 };
 
 
-// --- MÓDULO DE RENDERIZAÇÃO (Com Seleção de Cor) ---
+// --- MÓDULO DE RENDERIZAÇÃO (Desenho de CÍRCULOS) ---
 const Renderer = {
     draw(timestamp) {
         ctx.clearRect(0,0,c.width,c.height);
-        if(!state||!myId){requestAnimationFrame(Renderer.draw);return;}
+        // Garante que a tela fica vazia enquanto o novo jogador está sendo criado
+        if(!state||!myId||!state.players[myId]){requestAnimationFrame(Renderer.draw);return;}
 
         const me=state.players[myId];
         ctx.save();
@@ -302,7 +307,6 @@ const Renderer = {
             if(p.hp <= 0 && p.status !== 'victory') continue; 
 
             // CÍRCULO DO PLAYER: Usa a cor escolhida pelo player (variável global)
-            // Se fosse multiplayer real, precisaríamos que o servidor enviasse a cor de todos.
             ctx.globalAlpha = p.alive ? 1.0 : 0.5; 
             ctx.fillStyle = p.id === myId ? playerColor : "#f00"; // Jogador local usa 'playerColor'
             

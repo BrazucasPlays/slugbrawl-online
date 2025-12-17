@@ -3,7 +3,19 @@
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{margin:0;background:#000;color:#fff;font-family:Arial}
+body{
+    margin:0;
+    background:#000;
+    color:#fff;
+    font-family:Arial;
+    /* CORREÇÃO DO BUG DE TOQUE LONGO NO CELULAR */
+    /* Impede que o toque seja interpretado como seleção de texto */
+    -webkit-user-select: none; 
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    touch-action: none; /* Ajuda a prevenir o menu de contexto */
+}
 canvas{display:block}
 #menu, #endMenu{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);z-index: 100; opacity: 1; transition: opacity 0.5s;}
 #box{background:#111;padding:16px;border-radius:12px;width:280px; text-align: center;}
@@ -68,7 +80,7 @@ const MAP_HEIGHT = 1000;
 let lastPlayerHp = 100;
 let isGameOver = false;
 let playerColor = "#22c55e"; 
-
+let savedKills = 0; // Variável para salvar as mortes da última rodada
 
 // --- FUNÇÃO DE SELEÇÃO DE COR NO MENU ---
 function selectColor(element) {
@@ -163,7 +175,12 @@ function join(){
   document.getElementById("fire").style.display="block";
 }
 
+// CORREÇÃO: Salva as mortes antes de pedir o reset
 function restartGame(){
+    if(myId && state && state.players[myId]){
+        savedKills = state.players[myId].kills; // Salva as Kills atuais
+    }
+    
     ws.send(JSON.stringify({t:"reset"})); 
     myId = null; 
     setTimeout(join, 100); 
@@ -177,17 +194,20 @@ function showEndMenu(status, kills){
     const title = document.getElementById("endTitle");
     const stats = document.getElementById("endStats");
     let message = "";
+
+    // Usa as kills passadas para exibir
+    const killsToDisplay = kills || savedKills; 
     
     if (status === 'victory') {
         title.textContent = "🏆 VITÓRIA!";
         title.style.color = "#22c55e";
         Audio.playSound('victory_sound', 1.0);
-        message = `Parabéns! Você escapou da fase.<br>Você eliminou **${kills}** inimigos.`;
+        message = `Parabéns! Você escapou da fase.<br>Você eliminou **${killsToDisplay}** inimigos.`;
     } else {
         title.textContent = "💀 FIM DE JOGO";
         title.style.color = "#f00";
         Audio.playSound('death_sound', 1.0);
-        message = `Você foi eliminado. Sua pontuação foi:<br>Mortes: **${kills}**`;
+        message = `Você foi eliminado. Sua pontuação foi:<br>Mortes: **${killsToDisplay}**`;
     }
     
     stats.innerHTML = `<p style="font-size: 1.2em;">${message}</p>`;
@@ -235,6 +255,8 @@ joy.onpointerdown=e=>{
   center.x=r.left+r.width/2;
   center.y=r.top+r.height/2;
   drag=true;
+  // Previne o menu de contexto/seleção de texto no celular ao iniciar o toque
+  e.preventDefault(); 
 };
 
 joy.onpointermove=e=>{
@@ -244,23 +266,20 @@ joy.onpointermove=e=>{
   const d=Math.hypot(dx,dy);
   const m=Math.min(d,MAX);
   
-  // Posiciona o knob visualmente
   const nx=(dx/d||0)*m,ny=(dy/d||0)*m;
   knob.style.transform=`translate(${nx}px,${ny}px)`;
   
-  // Lógica de Movimento Normalizada (SIMPLIFICADA e mais robusta para evitar bugs de lentidão)
-  // O vetor de movimento é sempre calculado em relação ao raio máximo (MAX),
-  // garantindo que o movimento seja 1.0 (velocidade máxima) assim que o dedo sai do centro.
+  // Lógica de Movimento Normalizada
   move.x = dx / MAX;
   move.y = dy / MAX;
 
-  // Garante que o vetor de mira/tiro seja unitário (comprimento 1)
   const L=Math.hypot(move.x,move.y)||1;
   aim.x=move.x/L; aim.y=move.y/L;
   
-  // Limita o vetor de movimento enviado ao servidor para o máximo (1.0)
   const factor = Math.min(1, L);
   ws.send(JSON.stringify({t:"move",x:move.x*factor,y:move.y*factor}));
+  // Previne o menu de contexto/seleção de texto no celular ao mover
+  e.preventDefault(); 
 };
 
 joy.onpointerup=()=>{

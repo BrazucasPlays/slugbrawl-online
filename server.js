@@ -1,4 +1,4 @@
-// server.js
+// server.js (Sem alterações desde a última correção, mas garantindo o alcance e o reset)
 const express = require("express");
 const http = require("http");
 const WebSocket = require("ws");
@@ -16,6 +16,7 @@ const dist = (a,b,c,d)=>Math.hypot(a-c,b-d);
 
 function getRoom(id){
   if(!rooms[id]){
+    // NOVO MAPA É CRIADO AQUI (RESET TOTAL)
     rooms[id]={
       players:{},
       bullets:[],
@@ -37,7 +38,7 @@ wss.on("connection",ws=>{
     if(m.t==="join"){
       rid = m.room || "solo";
       pid = Math.random().toString(36).slice(2,7);
-      const r = getRoom(rid);
+      const r = getRoom(rid); // Cria a sala se não existir
 
       r.players[pid]={
         id:pid,
@@ -46,20 +47,18 @@ wss.on("connection",ws=>{
         y:rand(400,600),
         hp:100,
         max:100,
-        kills:0,
+        kills:0, // KILLS ZERADAS NO NOVO JOGADOR
         ix:0, iy:0,
         alive: true,
         status: null,
         color: m.color || "#22c55e" 
       };
-      // Envia o novo ID e o HP base para o cliente
       ws.send(JSON.stringify({t:"you",id:pid, lastHp: 100})); 
       return;
     }
 
     const r = getRoom(rid);
     const p = r.players[pid];
-    // Se o player não existe ou não está mais vivo, ele não pode enviar comandos.
     if(!p || !p.alive) return; 
 
     if(m.t==="move"){ p.ix=m.x; p.iy=m.y; }
@@ -73,10 +72,8 @@ wss.on("connection",ws=>{
     }
 
     if(m.t==="reset"){
-      // Deleta a sala para que um novo 'join' crie um mapa limpo (reinício completo do mapa)
+      // COMANDO CRÍTICO: DELETA A SALA. O PRÓXIMO JOIN CRIA UMA NOVA.
       delete rooms[rid];
-      // Nota: O servidor deve parar de processar comandos para este pid/rid imediatamente
-      // Até que o cliente reconecte e envie um novo 'join'
       pid = null; 
       rid = null;
     }
@@ -85,7 +82,6 @@ wss.on("connection",ws=>{
   ws.on("close",()=>{
     if(rid && pid){
       const r=getRoom(rid);
-      // Remove o player da sala
       if (r && r.players) {
         delete r.players[pid];
       }
@@ -109,28 +105,24 @@ setInterval(()=>{
     for(const p of Object.values(r.players)){
       if(!p.alive) continue; 
 
-      // Movimento (7x mais rápido)
       const moveFactor = Math.hypot(p.ix, p.iy);
-      if (moveFactor > 1) { // Normaliza o vetor de movimento se for maior que 1
+      if (moveFactor > 1) { 
           p.ix /= moveFactor;
           p.iy /= moveFactor;
       }
       p.x += p.ix * 7; 
       p.y += p.iy * 7; 
 
-      // Dano da Zona
       if(p.x<r.zone || p.y<r.zone || p.x>MAP.w-r.zone || p.y>MAP.h-r.zone){
         p.hp -= 0.8; 
       }
 
-      // Checagem de Status
       if(p.hp<=0){
         p.hp=0;
         p.alive=false;
         p.status='death';
       }
 
-      // Checagem de Vitória (Passar pela porta)
       if(p.kills>=5) {
         r.door.open=true;
       }
@@ -140,7 +132,7 @@ setInterval(()=>{
       }
     }
 
-    // Lógica de Inimigos
+    // Lógica de Inimigos (Alcance 300)
     for(const e of r.enemies){
       e.cd = Math.max(0, e.cd-1);
       let target=null, best=99999;
@@ -149,7 +141,6 @@ setInterval(()=>{
         const d = dist(e.x,e.y,p.x,p.y);
         if(d<best){best=d; target=p;}
       }
-      // ALCANCE REVERTIDO/AJUSTADO: Inimigo só atira se estiver muito próximo (300)
       if(target && best < 300 && e.cd===0){ 
         e.cd=35;
         const dx=target.x-e.x, dy=target.y-e.y;

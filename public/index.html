@@ -31,6 +31,7 @@ button{background:#ffc;color:#000;font-weight:bold}
 <div id="menu">
   <div id="box">
     <h3>SlugBrawl</h3>
+    <p id="errorMsg" style="color: #f00; font-size: 0.9em; display: none;">* O nome não pode estar vazio!</p>
     <input id="name" placeholder="Nome">
     <div id="playerSelect">
         <div class="colorOption selected" style="background-color: #22c55e;" data-color="#22c55e" onclick="selectColor(this)"></div>
@@ -136,11 +137,22 @@ const ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.
 let myId,state,roomKey="solo",aim={x:1,y:0},move={x:0,y:0};
 
 function join(){
+  const nameInput = document.getElementById("name");
+  const errorMsg = document.getElementById("errorMsg");
+
+  // VALIDAÇÃO: Não permite entrada com nome vazio
+  if (nameInput.value.trim() === "") {
+      errorMsg.style.display = "block";
+      nameInput.focus();
+      return;
+  }
+  errorMsg.style.display = "none";
+  
   Audio.context.resume(); 
   roomKey=document.getElementById("room").value||"solo";
   ws.send(JSON.stringify({
     t:"join",
-    name:document.getElementById("name").value,
+    name:nameInput.value,
     room:roomKey,
     color: playerColor 
   }));
@@ -154,7 +166,6 @@ function join(){
 function restartGame(){
     ws.send(JSON.stringify({t:"reset"})); 
     myId = null; 
-    // Garante que o servidor tenha tempo de deletar a sala antes de tentar entrar
     setTimeout(join, 100); 
 }
 
@@ -233,23 +244,23 @@ joy.onpointermove=e=>{
   const d=Math.hypot(dx,dy);
   const m=Math.min(d,MAX);
   
+  // Posiciona o knob visualmente
   const nx=(dx/d||0)*m,ny=(dy/d||0)*m;
   knob.style.transform=`translate(${nx}px,${ny}px)`;
   
-  // Lógica de Movimento Normalizada (Corrigida)
-  if (d <= MAX) {
-      move.x = dx / MAX;
-      move.y = dy / MAX;
-  } 
-  else {
-      move.x = dx / d;
-      move.y = dy / d;
-  }
-  
+  // Lógica de Movimento Normalizada (SIMPLIFICADA e mais robusta para evitar bugs de lentidão)
+  // O vetor de movimento é sempre calculado em relação ao raio máximo (MAX),
+  // garantindo que o movimento seja 1.0 (velocidade máxima) assim que o dedo sai do centro.
+  move.x = dx / MAX;
+  move.y = dy / MAX;
+
+  // Garante que o vetor de mira/tiro seja unitário (comprimento 1)
   const L=Math.hypot(move.x,move.y)||1;
   aim.x=move.x/L; aim.y=move.y/L;
   
-  ws.send(JSON.stringify({t:"move",x:move.x,y:move.y}));
+  // Limita o vetor de movimento enviado ao servidor para o máximo (1.0)
+  const factor = Math.min(1, L);
+  ws.send(JSON.stringify({t:"move",x:move.x*factor,y:move.y*factor}));
 };
 
 joy.onpointerup=()=>{
@@ -299,11 +310,9 @@ const Renderer = {
 
     drawPlayers(players, myId) {
         for(const p of Object.values(players)){
-            // Verifica se o jogador está vivo ou se acabou de ganhar (para desenhar na porta)
             if(p.hp <= 0 && p.status !== 'victory') continue; 
 
             ctx.globalAlpha = p.alive ? 1.0 : 0.5; 
-            // Usa a cor do jogador se for o local, ou o padrão se for um inimigo (ou outro player)
             ctx.fillStyle = p.id === myId ? playerColor : "#f00"; 
             
             ctx.beginPath();ctx.arc(p.x,p.y,16,0,Math.PI*2);ctx.fill();
